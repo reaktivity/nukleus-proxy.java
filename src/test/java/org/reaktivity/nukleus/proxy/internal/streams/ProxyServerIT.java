@@ -43,7 +43,7 @@ public class ProxyServerIT
         .responseBufferCapacity(1024)
         .counterValuesBufferCapacity(4096)
         .nukleus("proxy"::equals)
-        .affinityMask("target#0", EXTERNAL_AFFINITY_MASK)
+        .affinityMask("app#0", EXTERNAL_AFFINITY_MASK)
         .clean();
 
     @Rule
@@ -63,7 +63,7 @@ public class ProxyServerIT
     @Specification({
         "${route}/server/controller",
         "${client}/connected.local.client.sent.data/client",
-        "${scripts}/connected.local.client.sent.data/server"})
+        "${server}/connected.local.client.sent.data/server"})
     public void shouldConnectLocalClientSendsData() throws Exception
     {
         k3po.finish();
@@ -84,7 +84,17 @@ public class ProxyServerIT
         "${route}/server/controller",
         "${client}/connected.local.client.sent.challenge/client",
         "${server}/connected.local.client.sent.challenge/server"})
-    public void shouldConnectLocalClientSendshallenge() throws Exception
+    public void shouldConnectLocalClientSendsChallenge() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.local.client.sent.close/client",
+        "${server}/connected.local.client.sent.close/server"})
+    public void shouldConnectLocalClientSendsClose() throws Exception
     {
         k3po.finish();
     }
@@ -115,6 +125,16 @@ public class ProxyServerIT
         "${client}/connected.local.server.sent.challenge/client",
         "${server}/connected.local.server.sent.challenge/server"})
     public void shouldConnectLocalServerSendsChallenge() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.local.server.sent.close/client",
+        "${server}/connected.local.server.sent.close/server"})
+    public void shouldConnectLocalServerSendsClose() throws Exception
     {
         k3po.finish();
     }

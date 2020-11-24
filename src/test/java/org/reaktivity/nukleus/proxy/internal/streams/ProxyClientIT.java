@@ -42,8 +42,8 @@ public class ProxyClientIT
         .commandBufferCapacity(1024)
         .responseBufferCapacity(1024)
         .counterValuesBufferCapacity(4096)
-        .nukleus("ws"::equals)
-        .affinityMask("target#0", EXTERNAL_AFFINITY_MASK)
+        .nukleus("proxy"::equals)
+        .affinityMask("net#0", EXTERNAL_AFFINITY_MASK)
         .clean();
 
     @Rule

@@ -15,7 +15,10 @@
  */
 package org.reaktivity.nukleus.proxy.internal.stream;
 
+import static java.nio.ByteOrder.BIG_ENDIAN;
+import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.Objects.requireNonNull;
+import static org.reaktivity.nukleus.buffer.BufferPool.NO_SLOT;
 
 import java.util.function.LongUnaryOperator;
 import java.util.function.ToIntFunction;
@@ -23,16 +26,20 @@ import java.util.function.ToIntFunction;
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.Long2ObjectHashMap;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.reaktivity.nukleus.buffer.BufferPool;
 import org.reaktivity.nukleus.function.MessageConsumer;
 import org.reaktivity.nukleus.proxy.internal.ProxyConfiguration;
 import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
+import org.reaktivity.nukleus.proxy.internal.types.Flyweight;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.control.RouteFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.AbortFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.BeginFW;
+import org.reaktivity.nukleus.proxy.internal.types.stream.ChallengeFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.DataFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.EndFW;
+import org.reaktivity.nukleus.proxy.internal.types.stream.FlushFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.ProxyBeginExFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.ResetFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.WindowFW;
@@ -41,30 +48,54 @@ import org.reaktivity.nukleus.stream.StreamFactory;
 
 public final class ProxyServerFactory implements StreamFactory
 {
+    private static final DirectBuffer HEADER_V2 = new UnsafeBuffer("\r\n\r\n\0\r\nQUIT\n".getBytes(US_ASCII));
+    private static final int HEADER_V2_SIZE = HEADER_V2.capacity();
+    private static final DirectBuffer EMPTY_BUFFER = new UnsafeBuffer(0, 0);
+    private static final OctetsFW EMPTY_OCTETS = new OctetsFW().wrap(EMPTY_BUFFER, 0, 0);
+
     private final BeginFW beginRO = new BeginFW();
     private final DataFW dataRO = new DataFW();
     private final EndFW endRO = new EndFW();
     private final AbortFW abortRO = new AbortFW();
+    private final FlushFW flushRO = new FlushFW();
+
+    private final ProxyBeginExFW beginExRO = new ProxyBeginExFW();
 
     private final BeginFW.Builder beginRW = new BeginFW.Builder();
     private final DataFW.Builder dataRW = new DataFW.Builder();
     private final EndFW.Builder endRW = new EndFW.Builder();
     private final AbortFW.Builder abortRW = new AbortFW.Builder();
+    private final FlushFW.Builder flushRW = new FlushFW.Builder();
+
+    private final ProxyBeginExFW.Builder beginExRW = new ProxyBeginExFW.Builder();
 
     private final WindowFW windowRO = new WindowFW();
     private final ResetFW resetRO = new ResetFW();
-
-    private final ProxyBeginExFW beginExRO = new ProxyBeginExFW();
+    private final ChallengeFW challengeRO = new ChallengeFW();
 
     private final WindowFW.Builder windowRW = new WindowFW.Builder();
     private final ResetFW.Builder resetRW = new ResetFW.Builder();
+    private final ChallengeFW.Builder challengeRW = new ChallengeFW.Builder();
+
+    private final OctetsFW payloadRO = new OctetsFW();
+
+    private final ProxyNetServerDecoder decodeHeader = this::decodeHeader;
+    private final ProxyNetServerDecoder decodeVersion = this::decodeVersion;
+    private final ProxyNetServerDecoder decodeCommand = this::decodeCommand;
+    private final ProxyNetServerDecoder decodeLocal = this::decodeLocal;
+    private final ProxyNetServerDecoder decodeProxy = this::decodeProxy;
+    private final ProxyNetServerDecoder decodeIgnore = this::decodeIgnore;
+    private final ProxyNetServerDecoder decodeIgnoreAll = this::decodeIgnoreAll;
+    private final ProxyNetServerDecoder decodeData = this::decodeData;
 
     private final ProxyRouter router;
     private final MutableDirectBuffer writeBuffer;
+    private final BufferPool decodePool;
     private final LongUnaryOperator supplyInitialId;
     private final LongUnaryOperator supplyReplyId;
 
     private final Long2ObjectHashMap<MessageConsumer> correlations;
+    private final DirectBuffer headerRO = EMPTY_BUFFER;
 
     public ProxyServerFactory(
         ProxyConfiguration config,
@@ -77,6 +108,7 @@ public final class ProxyServerFactory implements StreamFactory
     {
         this.router = new ProxyRouter(router, supplyTypeId.applyAsInt(ProxyNukleus.NAME));
         this.writeBuffer = requireNonNull(writeBuffer);
+        this.decodePool = requireNonNull(bufferPool);
         this.supplyInitialId = requireNonNull(supplyInitialId);
         this.supplyReplyId = requireNonNull(supplyReplyId);
         this.correlations = new Long2ObjectHashMap<>();
@@ -97,71 +129,62 @@ public final class ProxyServerFactory implements StreamFactory
 
         if ((streamId & 0x0000_0000_0000_0001L) != 0L)
         {
-            newStream = newInitialStream(begin, sender);
+            final long routeId = begin.routeId();
+            final long initialId = begin.streamId();
+            final long affinity = begin.affinity();
+
+            newStream = new ProxyNetServer(routeId, initialId, sender, affinity)::onNetMessage;
         }
         else
         {
-            newStream = newReplyStream(begin, sender);
+            final long replyId = begin.streamId();
+
+            newStream = correlations.remove(replyId);
         }
 
         return newStream;
     }
 
-    private MessageConsumer newInitialStream(
-        final BeginFW begin,
-        final MessageConsumer sender)
-    {
-        final RouteFW route = router.resolve(begin);
-
-        MessageConsumer newStream = null;
-
-        if (route != null)
-        {
-            final long routeId = begin.routeId();
-            final long initialId = begin.streamId();
-            final long resolvedId = route.correlationId();
-
-            newStream = new ProxyNetworkClient(routeId, initialId, sender, resolvedId)::onNetwork;
-        }
-
-        return newStream;
-    }
-
-    private MessageConsumer newReplyStream(
-        final BeginFW begin,
-        final MessageConsumer sender)
-    {
-        final long replyId = begin.streamId();
-        return correlations.remove(replyId);
-    }
-
-    private final class ProxyNetworkClient
+    private final class ProxyNetServer
     {
         private final MessageConsumer receiver;
         private final long routeId;
         private final long initialId;
+        private final long affinity;
         private final long replyId;
 
-        private final ProxyApplicationClient application;
+        private ProxyNetServerDecoder decoder;
+        private int decodeSlot = NO_SLOT;
+        private int decodeOffset;
+        private int decodeLimit;
+        private int decodeReserved;
+        private int decodeFlags;
+
+        private int decodableBytes;
+
+        private int state;
 
         private int initialBudget;
         private int replyBudget;
         private int replyPadding;
 
-        private ProxyNetworkClient(
+        private ProxyAppServer app;
+
+        private ProxyNetServer(
             long routeId,
             long initialId,
             MessageConsumer receiver,
-            long resolvedId)
+            long affinity)
         {
             this.routeId = routeId;
             this.initialId = initialId;
             this.receiver = receiver;
+            this.affinity = affinity;
             this.replyId = supplyReplyId.applyAsLong(initialId);
-            this.application = new ProxyApplicationClient(this, resolvedId);
+            this.decoder = decodeHeader;
         }
 
-        private void onNetwork(
+        private void onNetMessage(
             int msgTypeId,
             DirectBuffer buffer,
             int index,
@@ -171,85 +194,162 @@ public final class ProxyServerFactory implements StreamFactory
             {
             case BeginFW.TYPE_ID:
                 final BeginFW begin = beginRO.wrap(buffer, index, index + length);
-                onNetworkBegin(begin);
+                onNetBegin(begin);
                 break;
             case DataFW.TYPE_ID:
                 final DataFW data = dataRO.wrap(buffer, index, index + length);
-                onNetworkData(data);
+                onNetData(data);
                 break;
             case EndFW.TYPE_ID:
                 final EndFW end = endRO.wrap(buffer, index, index + length);
-                onNetworkEnd(end);
+                onNetEnd(end);
                 break;
             case AbortFW.TYPE_ID:
                 final AbortFW abort = abortRO.wrap(buffer, index, index + length);
-                onNetworkAbort(abort);
+                onNetAbort(abort);
+                break;
+            case FlushFW.TYPE_ID:
+                final FlushFW flush = flushRO.wrap(buffer, index, index + length);
+                onNetFlush(flush);
                 break;
             case WindowFW.TYPE_ID:
                 final WindowFW window = windowRO.wrap(buffer, index, index + length);
-                onNetworkWindow(window);
+                onNetWindow(window);
                 break;
             case ResetFW.TYPE_ID:
                 final ResetFW reset = resetRO.wrap(buffer, index, index + length);
-                onNetworkReset(reset);
+                onNetReset(reset);
+                break;
+            case ChallengeFW.TYPE_ID:
+                final ChallengeFW challenge = challengeRO.wrap(buffer, index, index + length);
+                onNetChallenge(challenge);
                 break;
             default:
                 break;
             }
         }
 
-        private void onNetworkBegin(
+        private void onNetBegin(
             BeginFW begin)
         {
             final long traceId = begin.traceId();
             final long authorization = begin.authorization();
-            final long affinity = begin.affinity();
+            final OctetsFW extension = begin.extension();
+            final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
 
-            application.doApplicationBegin(traceId, authorization, affinity);
+            state = ProxyState.openedInitial(state);
+
+            if (beginEx != null)
+            {
+                decodeSlot = decodePool.acquire(initialId);
+                assert decodeSlot != NO_SLOT;
+
+                final MutableDirectBuffer decodeBuf = decodePool.buffer(decodeSlot);
+                decodeBuf.putBytes(0, beginEx.buffer(), beginEx.offset(), beginEx.sizeof());
+
+                decodeOffset = beginEx.sizeof();
+                decodeLimit = decodeOffset;
+            }
+
+            doNetWindow(traceId, authorization, 0L, 0, 0, 16, 0);
         }
 
-        private void onNetworkData(
+        private void onNetData(
             DataFW data)
         {
             final long traceId = data.traceId();
             final long authorization = data.authorization();
             final long budgetId = data.budgetId();
-            final int flags = data.flags();
-            final int reserved = data.reserved();
             final OctetsFW payload = data.payload();
 
-            initialBudget -= reserved;
+            initialBudget -= data.reserved();
 
             if (initialBudget < 0)
             {
-                doNetworkReset(traceId, authorization);
-                application.doApplicationAbort(traceId, authorization);
+                doNetReset(traceId, authorization);
+                if (app != null)
+                {
+                    app.doAppAbort(traceId, authorization);
+                }
             }
             else
             {
-                application.doApplicationData(traceId, authorization, budgetId, flags, reserved, payload);
+                DirectBuffer buffer = payload.buffer();
+                int offset = payload.offset();
+                int limit = payload.limit();
+                int reserved = data.reserved();
+                int flags = data.flags();
+
+                if (decodeLimit != decodeOffset)
+                {
+                    assert decodeSlot != NO_SLOT;
+                    final MutableDirectBuffer decodeBuffer = decodePool.buffer(decodeSlot);
+                    decodeBuffer.putBytes(decodeLimit, buffer, offset, limit - offset);
+                    decodeLimit += limit - offset;
+                    decodeFlags |= flags;
+
+                    buffer = decodeBuffer;
+                    offset = decodeOffset;
+                    limit = decodeLimit;
+                    reserved = decodeReserved;
+                    flags = decodeFlags;
+                }
+
+                decodeNet(traceId, authorization, flags, budgetId, reserved, buffer, offset, limit);
             }
         }
 
-        private void onNetworkEnd(
+        private void onNetEnd(
             EndFW end)
         {
             final long traceId = end.traceId();
             final long authorization = end.authorization();
 
-            application.doApplicationEnd(traceId, authorization);
+            state = ProxyState.closedInitial(state);
+
+            if (app != null)
+            {
+                app.doAppEnd(traceId, authorization);
+            }
+            else
+            {
+                doNetEnd(traceId, authorization);
+            }
         }
 
-        private void onNetworkAbort(
+        private void onNetAbort(
             AbortFW abort)
         {
             final long traceId = abort.traceId();
             final long authorization = abort.authorization();
 
-            application.doApplicationAbort(traceId, authorization);
+            state = ProxyState.closedInitial(state);
+
+            if (app != null)
+            {
+                app.doAppAbort(traceId, authorization);
+            }
+            else
+            {
+                doNetAbort(traceId, authorization);
+            }
         }
 
-        private void onNetworkWindow(
+        private void onNetFlush(
+            FlushFW flush)
+        {
+            if (app != null)
+            {
+                final long traceId = flush.traceId();
+                final long authorization = flush.authorization();
+                final long budgetId = flush.budgetId();
+                final int reserved = flush.reserved();
+
+                app.doAppFlush(traceId, authorization, budgetId, reserved);
+            }
+        }
+
+        private void onNetWindow(
             WindowFW window)
         {
             final long traceId = window.traceId();
@@ -257,32 +357,62 @@ public final class ProxyServerFactory implements StreamFactory
             final long budgetId = window.budgetId();
             final int credit = window.credit();
             final int padding = window.padding();
+            final int minimum = window.minimum();
+            final int capabilities = window.capabilities();
+
+            state = ProxyState.openedReply(state);
 
             replyBudget += credit;
             replyPadding = padding;
 
-            application.doApplicationWindow(traceId, authorization, budgetId, replyBudget, replyPadding);
+            if (app != null)
+            {
+                app.doAppWindow(traceId, authorization, budgetId, minimum, capabilities, replyBudget, replyPadding);
+            }
         }
 
-        private void onNetworkReset(
+        private void onNetReset(
             ResetFW reset)
         {
             final long traceId = reset.traceId();
             final long authorization = reset.authorization();
 
-            application.doApplicationReset(traceId, authorization);
+            state = ProxyState.closedReply(state);
+
+            if (app != null)
+            {
+                app.doAppReset(traceId, authorization);
+            }
+            else
+            {
+                doNetReset(traceId, authorization);
+            }
         }
 
-        private void doNetworkBegin(
+        private void onNetChallenge(
+            ChallengeFW challenge)
+        {
+            final long traceId = challenge.traceId();
+            final long authorization = challenge.authorization();
+            final OctetsFW extension = challenge.extension();
+
+            if (app != null)
+            {
+                app.doAppChallenge(traceId, authorization, extension);
+            }
+        }
+
+        private void doNetBegin(
             long traceId,
             long authorization,
             long affinity)
         {
-            router.setThrottle(replyId, this::onNetwork);
-            doBegin(receiver, routeId, replyId, traceId, authorization, affinity);
+            router.setThrottle(replyId, this::onNetMessage);
+            doBegin(receiver, routeId, replyId, traceId, authorization, affinity, EMPTY_OCTETS);
+            state = ProxyState.openingReply(state);
         }
 
-        private void doNetworkData(
+        private void doNetData(
             long traceId,
             long authorization,
             int flags,
@@ -296,31 +426,54 @@ public final class ProxyServerFactory implements StreamFactory
             doData(receiver, routeId, replyId, traceId, authorization, flags, budgetId, reserved, payload);
         }
 
-        private void doNetworkEnd(
+        private void doNetEnd(
             long traceId,
             long authorization)
         {
-            doEnd(receiver, routeId, replyId, traceId, authorization);
+            if (!ProxyState.replyClosed(state))
+            {
+                doEnd(receiver, routeId, replyId, traceId, authorization);
+                state = ProxyState.closedReply(state);
+            }
         }
 
-        private void doNetworkAbort(
+        private void doNetAbort(
             long traceId,
             long authorization)
         {
-            doAbort(receiver, routeId, replyId, traceId, authorization);
+            if (!ProxyState.replyClosed(state))
+            {
+                doAbort(receiver, routeId, replyId, traceId, authorization);
+                state = ProxyState.closedReply(state);
+            }
         }
 
-        private void doNetworkReset(
-            long traceId,
-            long authorization)
-        {
-            doReset(receiver, routeId, initialId, traceId, authorization);
-        }
-
-        private void doNetworkWindow(
+        private void doNetFlush(
             long traceId,
             long authorization,
             long budgetId,
+            int reserved)
+        {
+            doFlush(receiver, routeId, replyId, traceId, authorization, budgetId, reserved);
+        }
+
+        private void doNetReset(
+            long traceId,
+            long authorization)
+        {
+            if (!ProxyState.initialClosed(state))
+            {
+                doReset(receiver, routeId, initialId, traceId, authorization);
+                state = ProxyState.closedInitial(state);
+            }
+        }
+
+        private void doNetWindow(
+            long traceId,
+            long authorization,
+            long budgetId,
+            int minimum,
+            int capabilities,
             int maxBudget,
             int minPadding)
         {
@@ -330,36 +483,158 @@ public final class ProxyServerFactory implements StreamFactory
                 initialBudget += initialCredit;
                 int initialPadding = minPadding;
 
-                doWindow(receiver, routeId, initialId, traceId, authorization, budgetId, initialCredit, initialPadding);
+                doWindow(receiver, routeId, initialId, traceId, authorization, budgetId,
+                        initialCredit, initialPadding, minimum, capabilities);
             }
         }
 
+        private void doNetChallenge(
+            long traceId,
+            long authorization,
+            OctetsFW extension)
+        {
+            doChallenge(receiver, routeId, initialId, traceId, authorization, extension);
+        }
+
+        private void decodeNet(
+            long traceId,
+            long authorization,
+            long budgetId)
+        {
+            if (decodeSlot != NO_SLOT)
+            {
+                final MutableDirectBuffer buffer = decodePool.buffer(decodeSlot);
+                final int offset = decodeOffset;
+                final int limit = decodeLimit;
+                final int reserved = decodeReserved;
+                final int flags = decodeFlags;
+
+                decodeNet(traceId, authorization, flags, budgetId, reserved, buffer, offset, limit);
+            }
+        }
+
+        private void decodeNet(
+            long traceId,
+            long authorization,
+            int flags,
+            long budgetId,
+            int reserved,
+            DirectBuffer buffer,
+            int offset,
+            int limit)
+        {
+            ProxyNetServerDecoder previous = null;
+            int progress = offset;
+            while (progress <= limit && previous != decoder)
+            {
+                previous = decoder;
+                progress = decoder.decode(this, traceId, authorization, flags, budgetId,
+                        reserved, buffer, offset, progress, limit);
+            }
+
+            if (progress < limit)
+            {
+                if (decodeSlot == NO_SLOT)
+                {
+                    decodeSlot = decodePool.acquire(initialId);
+                }
+
+                if (decodeSlot == NO_SLOT)
+                {
+                    cleanup(traceId, authorization);
+                }
+                else
+                {
+                    final MutableDirectBuffer decodeBuffer = decodePool.buffer(decodeSlot);
+                    decodeBuffer.putBytes(0, buffer, progress, limit - progress);
+                    decodeLimit = decodeOffset + limit - progress;
+                    decodeReserved = (limit - progress) * reserved / (limit - offset);
+                }
+            }
+            else
+            {
+                cleanupDecodeSlot(false);
+
+                if (ProxyState.initialClosing(state) && app != null)
+                {
+                    app.doAppEnd(traceId, authorization);
+                }
+            }
+        }
+
+        private void onNetReady(
+            long traceId,
+            long authorization)
+        {
+            final DirectBuffer decodeBuffer = decodeSlot != NO_SLOT ? decodePool.buffer(decodeSlot) : EMPTY_BUFFER;
+
+            final ProxyBeginExFW beginEx = beginExRO.tryWrap(decodeBuffer, 0, decodeOffset);
+
+            final RouteFW route = router.resolveNet(routeId, authorization, beginEx);
+            if (route != null)
+            {
+                final long resolvedId = route.correlationId();
+
+                app = new ProxyAppServer(this, resolvedId);
+                app.doAppBegin(traceId, authorization, affinity, beginEx != null ? beginEx : EMPTY_OCTETS);
+            }
+            else
+            {
+                cleanup(traceId, authorization);
+            }
+        }
+
+        private void cleanupDecodeSlot(
+            boolean force)
+        {
+            if (decodeSlot != NO_SLOT && (app != null || force))
+            {
+                decodePool.release(decodeSlot);
+                decodeSlot = NO_SLOT;
+                decodeOffset = 0;
+                decodeReserved = 0;
+                decodeFlags = 0;
+            }
+        }
+
+        private void cleanup(
+            long traceId,
+            long authorization)
+        {
+            cleanupDecodeSlot(true);
+            doNetReset(traceId, authorization);
+            doNetAbort(traceId, authorization);
+            app.cleanup(traceId, authorization);
+            decoder = decodeIgnoreAll;
+        }
     }
 
-    private final class ProxyApplicationClient
+    private final class ProxyAppServer
     {
-        private final ProxyNetworkClient network;
+        private final ProxyNetServer net;
         private final long routeId;
         private final long initialId;
         private final long replyId;
         private final MessageConsumer receiver;
 
+        private int state;
+
         private int initialBudget;
         private int initialPadding;
         private int replyBudget;
 
-        private ProxyApplicationClient(
-            ProxyNetworkClient network,
+        private ProxyAppServer(
+            ProxyNetServer net,
             long routeId)
         {
-            this.network = network;
+            this.net = net;
             this.routeId = routeId;
             this.initialId = supplyInitialId.applyAsLong(routeId);
             this.replyId =  supplyReplyId.applyAsLong(initialId);
             this.receiver = router.supplyReceiver(initialId);
         }
 
-        private void onApplication(
+        private void onAppMessage(
             int msgTypeId,
             DirectBuffer buffer,
             int index,
@@ -369,44 +644,54 @@ public final class ProxyServerFactory implements StreamFactory
             {
             case BeginFW.TYPE_ID:
                 final BeginFW begin = beginRO.wrap(buffer, index, index + length);
-                onApplicationBegin(begin);
+                onAppBegin(begin);
                 break;
             case DataFW.TYPE_ID:
                 final DataFW data = dataRO.wrap(buffer, index, index + length);
-                onApplicationData(data);
+                onAppData(data);
                 break;
             case EndFW.TYPE_ID:
                 final EndFW end = endRO.wrap(buffer, index, index + length);
-                onApplicationEnd(end);
+                onAppEnd(end);
                 break;
             case AbortFW.TYPE_ID:
                 final AbortFW abort = abortRO.wrap(buffer, index, index + length);
-                onApplicationAbort(abort);
+                onAppAbort(abort);
+                break;
+            case FlushFW.TYPE_ID:
+                final FlushFW flush = flushRO.wrap(buffer, index, index + length);
+                onAppFlush(flush);
                 break;
             case WindowFW.TYPE_ID:
                 final WindowFW window = windowRO.wrap(buffer, index, index + length);
-                onApplicationWindow(window);
+                onAppWindow(window);
                 break;
             case ResetFW.TYPE_ID:
                 final ResetFW reset = resetRO.wrap(buffer, index, index + length);
-                onApplicationReset(reset);
+                onAppReset(reset);
+                break;
+            case ChallengeFW.TYPE_ID:
+                final ChallengeFW challenge = challengeRO.wrap(buffer, index, index + length);
+                onAppChallenge(challenge);
                 break;
             default:
                 break;
             }
         }
 
-        private void onApplicationBegin(
+        private void onAppBegin(
             BeginFW begin)
         {
             final long traceId = begin.traceId();
             final long authorization = begin.authorization();
             final long affinity = begin.affinity();
 
-            network.doNetworkBegin(traceId, authorization, affinity);
+            state = ProxyState.openedReply(state);
+
+            net.doNetBegin(traceId, authorization, affinity);
         }
 
-        private void onApplicationData(
+        private void onAppData(
             DataFW data)
         {
             final long authorization = data.authorization();
@@ -420,34 +705,49 @@ public final class ProxyServerFactory implements StreamFactory
 
             if (replyBudget < 0)
             {
-                doApplicationReset(traceId, authorization);
-                network.doNetworkAbort(traceId, authorization);
+                doAppReset(traceId, authorization);
+                net.doNetAbort(traceId, authorization);
             }
             else
             {
-                network.doNetworkData(traceId, authorization, flags, budgetId, reserved, payload);
+                net.doNetData(traceId, authorization, flags, budgetId, reserved, payload);
             }
         }
 
-        private void onApplicationEnd(
+        private void onAppEnd(
             EndFW end)
         {
             final long traceId = end.traceId();
             final long authorization = end.authorization();
 
-            network.doNetworkEnd(traceId, authorization);
+            state = ProxyState.closedReply(state);
+
+            net.doNetEnd(traceId, authorization);
         }
 
-        private void onApplicationAbort(
+        private void onAppAbort(
             AbortFW abort)
         {
             final long traceId = abort.traceId();
             final long authorization = abort.authorization();
 
-            network.doNetworkAbort(traceId, authorization);
+            state = ProxyState.closedReply(state);
+
+            net.doNetAbort(traceId, authorization);
         }
 
-        private void onApplicationWindow(
+        private void onAppFlush(
+            FlushFW flush)
+        {
+            final long traceId = flush.traceId();
+            final long authorization = flush.authorization();
+            final long budgetId = flush.budgetId();
+            final int reserved = flush.reserved();
+
+            net.doNetFlush(traceId, authorization, budgetId, reserved);
+        }
+
+        private void onAppWindow(
             WindowFW window)
         {
             final long traceId = window.traceId();
@@ -455,33 +755,52 @@ public final class ProxyServerFactory implements StreamFactory
             final long budgetId = window.budgetId();
             final int credit = window.credit();
             final int padding = window.padding();
+            final int minimum = window.minimum();
+            final int capabilities = window.capabilities();
+
+            state = ProxyState.openedInitial(state);
 
             initialBudget += credit;
             initialPadding = padding;
 
-            network.doNetworkWindow(traceId, authorization, budgetId, initialBudget, initialPadding);
+            net.decodeNet(traceId, authorization, budgetId);
+            net.doNetWindow(traceId, authorization, budgetId, minimum, capabilities, initialBudget, initialPadding);
         }
 
-        private void onApplicationReset(
+        private void onAppReset(
             ResetFW reset)
         {
             final long traceId = reset.traceId();
             final long authorization = reset.authorization();
 
-            network.doNetworkReset(traceId, authorization);
+            state = ProxyState.closedInitial(state);
+
+            net.doNetReset(traceId, authorization);
         }
 
-        private void doApplicationBegin(
+        private void onAppChallenge(
+            ChallengeFW challenge)
+        {
+            final long traceId = challenge.traceId();
+            final long authorization = challenge.authorization();
+            final OctetsFW extension = challenge.extension();
+
+            net.doNetChallenge(traceId, authorization, extension);
+        }
+
+        private void doAppBegin(
             long traceId,
             long authorization,
-            long affinity)
+            long affinity,
+            Flyweight extension)
         {
-            correlations.put(replyId, this::onApplication);
-            router.setThrottle(replyId, this::onApplication);
-            doBegin(receiver, affinity, initialId, traceId, authorization, affinity);
+            correlations.put(replyId, this::onAppMessage);
+            router.setThrottle(initialId, this::onAppMessage);
+            doBegin(receiver, routeId, initialId, traceId, authorization, affinity, extension);
+            state = ProxyState.openingInitial(state);
         }
 
-        private void doApplicationData(
+        private void doAppData(
             long traceId,
             long authorization,
             long budgetId,
@@ -492,35 +811,58 @@ public final class ProxyServerFactory implements StreamFactory
             initialBudget -= reserved;
             assert initialBudget >= 0;
 
-            doData(receiver, reserved, initialId, traceId, authorization, flags, budgetId, reserved, payload);
+            doData(receiver, routeId, initialId, traceId, authorization, flags, budgetId, reserved, payload);
         }
 
-        private void doApplicationEnd(
+        private void doAppEnd(
             long traceId,
             long authorization)
         {
-            doEnd(receiver, authorization, initialId, traceId, authorization);
+            if (!ProxyState.initialClosed(state))
+            {
+                doEnd(receiver, routeId, initialId, traceId, authorization);
+                state = ProxyState.closedInitial(state);
+            }
         }
 
-        private void doApplicationAbort(
+        private void doAppAbort(
             long traceId,
             long authorization)
         {
-            doAbort(receiver, authorization, initialId, traceId, authorization);
+            if (!ProxyState.initialClosed(state))
+            {
+                doAbort(receiver, routeId, initialId, traceId, authorization);
+                state = ProxyState.closedInitial(state);
+            }
         }
 
-        private void doApplicationReset(
-            long traceId,
-            long authorization)
-        {
-            correlations.remove(replyId);
-            doReset(receiver, routeId, replyId, traceId, authorization);
-        }
-
-        private void doApplicationWindow(
+        private void doAppFlush(
             long traceId,
             long authorization,
             long budgetId,
+            int reserved)
+        {
+            doFlush(receiver, routeId, initialId, traceId, authorization, budgetId, reserved);
+        }
+
+        private void doAppReset(
+            long traceId,
+            long authorization)
+        {
+            if (!ProxyState.replyClosed(state))
+            {
+                correlations.remove(replyId);
+                doReset(receiver, routeId, replyId, traceId, authorization);
+                state = ProxyState.closedReply(state);
+            }
+        }
+
+        private void doAppWindow(
+            long traceId,
+            long authorization,
+            long budgetId,
+            int minimum,
+            int capabilities,
             int maxBudget,
             int minPadding)
         {
@@ -530,8 +872,25 @@ public final class ProxyServerFactory implements StreamFactory
                 replyBudget += replyCredit;
                 int replyPadding = minPadding;
 
-                doWindow(receiver, routeId, replyId, traceId, authorization, budgetId, replyCredit, replyPadding);
+                doWindow(receiver, routeId, replyId, traceId, authorization, budgetId,
+                        replyCredit, replyPadding, minimum, capabilities);
             }
+        }
+
+        private void doAppChallenge(
+            long traceId,
+            long authorization,
+            OctetsFW extension)
+        {
+            doChallenge(receiver, routeId, replyId, traceId, authorization, extension);
+        }
+
+        private void cleanup(
+            long traceId,
+            long authorization)
+        {
+            doAppReset(traceId, authorization);
+            doAppAbort(traceId, authorization);
         }
     }
 
@@ -541,7 +900,8 @@ public final class ProxyServerFactory implements StreamFactory
         long streamId,
         long traceId,
         long authorization,
-        long affinity)
+        long affinity,
+        Flyweight extension)
     {
         BeginFW begin = beginRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
@@ -549,12 +909,13 @@ public final class ProxyServerFactory implements StreamFactory
                 .traceId(traceId)
                 .authorization(authorization)
                 .affinity(affinity)
+                .extension(extension.buffer(), extension.offset(), extension.sizeof())
                 .build();
 
         receiver.accept(begin.typeId(), begin.buffer(), begin.offset(), begin.sizeof());
     }
 
-    void doData(
+    private void doData(
         MessageConsumer receiver,
         long routeId,
         long streamId,
@@ -596,7 +957,7 @@ public final class ProxyServerFactory implements StreamFactory
         receiver.accept(reset.typeId(), reset.buffer(), reset.offset(), reset.sizeof());
     }
 
-    void doWindow(
+    private void doWindow(
         MessageConsumer receiver,
         long routeId,
         long streamId,
@@ -604,7 +965,9 @@ public final class ProxyServerFactory implements StreamFactory
         long authorization,
         long budgetId,
         int credit,
-        int padding)
+        int padding,
+        int minimum,
+        int capabilities)
     {
         final WindowFW window = windowRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
@@ -614,12 +977,33 @@ public final class ProxyServerFactory implements StreamFactory
                 .budgetId(budgetId)
                 .credit(credit)
                 .padding(padding)
+                .minimum(minimum)
+                .capabilities(capabilities)
                 .build();
 
         receiver.accept(window.typeId(), window.buffer(), window.offset(), window.sizeof());
     }
 
-    void doEnd(
+    private void doChallenge(
+        MessageConsumer receiver,
+        long routeId,
+        long streamId,
+        long traceId,
+        long authorization,
+        OctetsFW extension)
+    {
+        final ChallengeFW challenge = challengeRW.wrap(writeBuffer, 0, writeBuffer.capacity())
+                .routeId(routeId)
+                .streamId(streamId)
+                .traceId(traceId)
+                .authorization(authorization)
+                .extension(extension)
+                .build();
+
+        receiver.accept(challenge.typeId(), challenge.buffer(), challenge.offset(), challenge.sizeof());
+    }
+
+    private void doEnd(
         MessageConsumer receiver,
         long routeId,
         long streamId,
@@ -636,7 +1020,7 @@ public final class ProxyServerFactory implements StreamFactory
         receiver.accept(end.typeId(), end.buffer(), end.offset(), end.sizeof());
     }
 
-    void doAbort(
+    private void doAbort(
         MessageConsumer receiver,
         long routeId,
         long streamId,
@@ -653,9 +1037,275 @@ public final class ProxyServerFactory implements StreamFactory
         receiver.accept(abort.typeId(), abort.buffer(), abort.offset(), abort.sizeof());
     }
 
-    @FunctionalInterface
-    private interface DecoderState
+    private void doFlush(
+        MessageConsumer receiver,
+        long routeId,
+        long streamId,
+        long traceId,
+        long authorization,
+        long budgetId,
+        int reserved)
     {
-        int decode(DirectBuffer buffer, int offset, int length);
+        final FlushFW flush = flushRW.wrap(writeBuffer, 0, writeBuffer.capacity())
+                .routeId(routeId)
+                .streamId(streamId)
+                .traceId(traceId)
+                .authorization(authorization)
+                .budgetId(budgetId)
+                .reserved(reserved)
+                .build();
+
+        receiver.accept(flush.typeId(), flush.buffer(), flush.offset(), flush.sizeof());
+    }
+
+    private int decodeHeader(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= HEADER_V2_SIZE)
+        {
+            DirectBuffer header = headerRO;
+            header.wrap(buffer, progress, HEADER_V2_SIZE);
+            if (!HEADER_V2.equals(header))
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            progress += HEADER_V2_SIZE;
+            net.decoder = decodeVersion;
+        }
+
+        return progress;
+    }
+
+    private int decodeVersion(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            int version = (buffer.getByte(progress) >> 4) & 0x0f;
+
+            if (version != 2)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            net.decoder = decodeCommand;
+        }
+
+        return progress;
+    }
+
+    private int decodeCommand(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            int command = buffer.getByte(progress) & 0x0f;
+
+            switch (command)
+            {
+            case 0:
+                progress++;
+                net.decoder = decodeLocal;
+                break;
+            case 1:
+                progress++;
+                net.decoder = decodeProxy;
+                break;
+            default:
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+        }
+
+        return progress;
+    }
+
+    private int decodeLocal(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= 3)
+        {
+            int transport = buffer.getByte(progress) & 0x0f;
+
+            if (transport > 3)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            int remaining = buffer.getShort(progress, BIG_ENDIAN) & 0xffff;
+
+            progress += Byte.SIZE + Short.SIZE;
+
+            if (remaining == 0)
+            {
+                net.onNetReady(traceId, authorization);
+                net.decoder = decodeData;
+            }
+            else
+            {
+                net.doNetWindow(traceId, authorization, budgetId, 0, 0, remaining, 0);
+
+                net.decodableBytes = remaining;
+                net.decoder = decodeIgnore;
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeIgnore(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        if (length > 0 || net.decodableBytes == 0)
+        {
+            int remaining = Math.min(length, net.decodableBytes);
+
+            progress += remaining;
+            net.decodableBytes -= remaining;
+
+            if (net.decodableBytes == 0)
+            {
+                net.onNetReady(traceId, authorization);
+                net.decoder = decodeData;
+            }
+        }
+
+        return progress;
+    }
+
+
+    private int decodeIgnoreAll(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        return limit;
+    }
+
+    private int decodeProxy(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        // TODO
+        return progress;
+    }
+
+    private int decodeData(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        if (length > 0)
+        {
+            OctetsFW payload = payloadRO.wrap(buffer, progress, limit);
+            net.app.doAppData(traceId, authorization, budgetId, flags, reserved, payload);
+            progress += length;
+        }
+
+        return progress;
+    }
+
+    @FunctionalInterface
+    private interface ProxyNetServerDecoder
+    {
+        int decode(
+            ProxyNetServer net,
+            long traceId,
+            long authorization,
+            int flags,
+            long budgetId,
+            int reserved,
+            DirectBuffer buffer,
+            int offset,
+            int progress,
+            int limit);
     }
 }

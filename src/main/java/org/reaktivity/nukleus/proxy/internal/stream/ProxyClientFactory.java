@@ -111,10 +111,9 @@ public final class ProxyClientFactory implements StreamFactory
         final BeginFW begin,
         final MessageConsumer sender)
     {
-        final RouteFW route = router.resolve(begin);
-
         MessageConsumer newStream = null;
 
+        final RouteFW route = router.resolveApp(begin);
         if (route != null)
         {
             final long routeId = begin.routeId();
@@ -481,7 +480,7 @@ public final class ProxyClientFactory implements StreamFactory
             long affinity)
         {
             correlations.put(replyId, this::onNetwork);
-            router.setThrottle(replyId, this::onNetwork);
+            router.setThrottle(initialId, this::onNetwork);
             doBegin(receiver, affinity, initialId, traceId, authorization, affinity);
         }
 

@@ -54,7 +54,8 @@ public final class ProxyRouter
     private final RouteManager router;
     private final int typeId;
 
-    private ProxyBeginExFW beginEx;
+    private ProxyAddressFW address;
+    private Array32FW<ProxyInfoFW> infos;
 
     public ProxyRouter(
         RouteManager router,
@@ -64,7 +65,7 @@ public final class ProxyRouter
         this.typeId = typeId;
     }
 
-    public RouteFW resolve(
+    public RouteFW resolveApp(
         BeginFW begin)
     {
         final long routeId = begin.routeId();
@@ -72,8 +73,15 @@ public final class ProxyRouter
         final OctetsFW extension = begin.extension();
         final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
 
-        this.beginEx = beginEx.typeId() == typeId ? beginEx : null;
-        return router.resolve(routeId, authorization, this::filter, this::map);
+        return resolveNet(routeId, authorization, beginEx);
+    }
+
+    public RouteFW resolveNet(
+        long routeId,
+        long authorization,
+        ProxyBeginExFW beginEx)
+    {
+        return resolve(routeId, authorization, beginEx);
     }
 
     public MessageConsumer supplyReceiver(
@@ -87,6 +95,16 @@ public final class ProxyRouter
         MessageConsumer throttle)
     {
         router.setThrottle(streamId, throttle);
+    }
+
+    private RouteFW resolve(
+        long routeId,
+        long authorization,
+        ProxyBeginExFW beginEx)
+    {
+        this.address = beginEx != null && beginEx.typeId() == typeId ? beginEx.address() : null;
+        this.infos = beginEx != null && beginEx.typeId() == typeId ? beginEx.infos() : null;
+        return router.resolve(routeId, authorization, this::filter, this::map);
     }
 
     private RouteFW map(
@@ -112,13 +130,13 @@ public final class ProxyRouter
             return true;
         }
 
-        if (beginEx == null)
+        if (address == null)
         {
             return false;
         }
 
-        return matchesAddress(routeEx.address(), beginEx.address()) &&
-                matchesInfos(routeEx.infos(), beginEx.infos());
+        return matchesAddress(routeEx.address(), address) &&
+                matchesInfos(routeEx.infos(), infos);
     }
 
     private boolean matchesAddress(
