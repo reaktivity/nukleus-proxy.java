@@ -62,6 +62,16 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
+        "${client}/connected.local.client.sent.begin.ext/client",
+        "${server}/connected.local.client.sent.begin.ext/server" })
+    public void shouldConnectLocalClientSendsBeginExt() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
         "${client}/connected.local.client.sent.data/client",
         "${server}/connected.local.client.sent.data/server"})
     public void shouldConnectLocalClientSendsData() throws Exception
