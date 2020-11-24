@@ -19,17 +19,18 @@ import org.reaktivity.nukleus.Configuration;
 
 public class ProxyConfiguration extends Configuration
 {
-    private static final ConfigurationDef WS_CONFIG;
+    private static final ConfigurationDef CONFIG_DEF;
 
     static
     {
-        final ConfigurationDef config = new ConfigurationDef("nukleus.ws");
-        WS_CONFIG = config;
+        final String prefix = String.format("nukleus.%s", ProxyNukleus.NAME);
+        final ConfigurationDef config = new ConfigurationDef(prefix);
+        CONFIG_DEF = config;
     }
 
     public ProxyConfiguration(
         Configuration config)
     {
-        super(WS_CONFIG, config);
+        super(CONFIG_DEF, config);
     }
 }
