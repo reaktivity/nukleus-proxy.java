@@ -33,6 +33,12 @@ import org.reaktivity.nukleus.proxy.internal.ProxyConfiguration;
 import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
 import org.reaktivity.nukleus.proxy.internal.types.Flyweight;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet4FW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet6FW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.control.RouteFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.AbortFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.BeginFW;
@@ -53,6 +59,10 @@ public final class ProxyServerFactory implements StreamFactory
     private static final DirectBuffer EMPTY_BUFFER = new UnsafeBuffer(0, 0);
     private static final OctetsFW EMPTY_OCTETS = new OctetsFW().wrap(EMPTY_BUFFER, 0, 0);
 
+    private static final int PROXY_ADDRESS_LENGTH_INET4 = 12;
+    private static final int PROXY_ADDRESS_LENGTH_INET6 = 36;
+    private static final int PROXY_ADDRESS_LENGTH_UNIX = 216;
+
     private final BeginFW beginRO = new BeginFW();
     private final DataFW dataRO = new DataFW();
     private final EndFW endRO = new EndFW();
@@ -67,8 +77,6 @@ public final class ProxyServerFactory implements StreamFactory
     private final AbortFW.Builder abortRW = new AbortFW.Builder();
     private final FlushFW.Builder flushRW = new FlushFW.Builder();
 
-    private final ProxyBeginExFW.Builder beginExRW = new ProxyBeginExFW.Builder();
-
     private final WindowFW windowRO = new WindowFW();
     private final ResetFW resetRO = new ResetFW();
     private final ChallengeFW challengeRO = new ChallengeFW();
@@ -79,11 +87,21 @@ public final class ProxyServerFactory implements StreamFactory
 
     private final OctetsFW payloadRO = new OctetsFW();
 
+    private final ProxyAddrInet4FW addressInet4RO = new ProxyAddrInet4FW();
+    private final ProxyAddrInet6FW addressInet6RO = new ProxyAddrInet6FW();
+    private final ProxyAddrUnixFW addressUnixRO = new ProxyAddrUnixFW();
+
+    private final ProxyAddressFW.Builder addressRW = new ProxyAddressFW.Builder();
+
     private final ProxyNetServerDecoder decodeHeader = this::decodeHeader;
     private final ProxyNetServerDecoder decodeVersion = this::decodeVersion;
     private final ProxyNetServerDecoder decodeCommand = this::decodeCommand;
     private final ProxyNetServerDecoder decodeLocal = this::decodeLocal;
     private final ProxyNetServerDecoder decodeProxy = this::decodeProxy;
+    private final ProxyNetServerDecoder decodeProxyInet4 = this::decodeProxyInet4;
+    private final ProxyNetServerDecoder decodeProxyInet6 = this::decodeProxyInet6;
+    private final ProxyNetServerDecoder decodeProxyUnix = this::decodeProxyUnix;
+    private final ProxyNetServerDecoder decodeProxyTypeLengthValue = this::decodeProxyTypeLengthValue;
     private final ProxyNetServerDecoder decodeIgnore = this::decodeIgnore;
     private final ProxyNetServerDecoder decodeIgnoreAll = this::decodeIgnoreAll;
     private final ProxyNetServerDecoder decodeData = this::decodeData;
@@ -160,6 +178,8 @@ public final class ProxyServerFactory implements StreamFactory
         private int decodeReserved;
         private int decodeFlags;
 
+        private ProxyAddressFamily decodedFamily;
+        private ProxyAddressProtocol decodedTransport;
         private int decodableBytes;
 
         private int state;
@@ -1175,7 +1195,7 @@ public final class ProxyServerFactory implements StreamFactory
         int length = limit - progress;
 
         decode:
-        if (length >= 3)
+        if (length >= Byte.BYTES + Short.BYTES)
         {
             int transport = buffer.getByte(progress) & 0x0f;
 
@@ -1184,10 +1204,11 @@ public final class ProxyServerFactory implements StreamFactory
                 net.cleanup(traceId, authorization);
                 break decode;
             }
+            progress += Byte.BYTES;
 
             int remaining = buffer.getShort(progress, BIG_ENDIAN) & 0xffff;
 
-            progress += Byte.SIZE + Short.SIZE;
+            progress += Short.BYTES;
 
             if (remaining == 0)
             {
@@ -1254,6 +1275,302 @@ public final class ProxyServerFactory implements StreamFactory
     }
 
     private int decodeProxy(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= Byte.BYTES + Short.BYTES)
+        {
+            byte protocol = buffer.getByte(progress);
+            int family = (protocol >> 4) & 0x0f;
+            int transport = protocol & 0x0f;
+
+            if (family == 0 || family > 3 || transport == 0 || transport > 2)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+            progress += Byte.BYTES;
+
+            int remaining = buffer.getShort(progress, BIG_ENDIAN) & 0xffff;
+            if (remaining == 0)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            net.doNetWindow(traceId, authorization, budgetId, 0, 0, remaining, 0);
+
+            net.decodedFamily = ProxyAddressFamily.valueOf(family - 1);
+            net.decodedTransport = ProxyAddressProtocol.valueOf(transport - 1);
+            net.decodableBytes = remaining;
+
+            progress += Short.BYTES;
+
+            switch (net.decodedFamily)
+            {
+            case INET:
+                if (remaining < PROXY_ADDRESS_LENGTH_INET4)
+                {
+                    net.cleanup(traceId, authorization);
+                    break decode;
+                }
+                net.decoder = decodeProxyInet4;
+                break;
+            case INET6:
+                if (remaining < PROXY_ADDRESS_LENGTH_INET6)
+                {
+                    net.cleanup(traceId, authorization);
+                    break decode;
+                }
+                net.decoder = decodeProxyInet6;
+                break;
+            case UNIX:
+                if (remaining < PROXY_ADDRESS_LENGTH_UNIX)
+                {
+                    net.cleanup(traceId, authorization);
+                    break decode;
+                }
+                net.decoder = decodeProxyUnix;
+                break;
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyInet4(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= PROXY_ADDRESS_LENGTH_INET4)
+        {
+            ProxyAddrInet4FW addressInet4 = addressInet4RO.tryWrap(buffer, progress, limit);
+
+            if (addressInet4 == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            final OctetsFW source = addressInet4.source();
+            final OctetsFW destination = addressInet4.destination();
+            final int sourcePort = addressInet4.sourcePort();
+            final int destinationPort = addressInet4.destinationPort();
+
+            if (net.decodeSlot == NO_SLOT)
+            {
+                net.decodeSlot = decodePool.acquire(net.initialId);
+            }
+            assert net.decodeSlot != NO_SLOT;
+
+            final MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            decodeBuf.putInt(net.decodeOffset, router.typeId());
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            ProxyAddressFW address = addressRW
+                    .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
+                    .inet(i -> i.protocol(t -> t.set(net.decodedTransport))
+                                .source(source)
+                                .destination(destination)
+                                .sourcePort(sourcePort)
+                                .destinationPort(destinationPort))
+                    .build();
+
+            net.decodableBytes -= addressInet4.sizeof();
+            net.decodeOffset += address.sizeof();
+            net.decodeLimit = net.decodeOffset;
+            progress = addressInet4.limit();
+
+            decodeBuf.putInt(net.decodeOffset, Integer.BYTES);
+            net.decodeOffset += Integer.BYTES;
+            decodeBuf.putInt(net.decodeOffset, 0);
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            if (net.decodableBytes == 0)
+            {
+                net.onNetReady(traceId, authorization);
+                net.decoder = decodeData;
+            }
+            else
+            {
+                net.decoder = decodeProxyTypeLengthValue;
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyInet6(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= PROXY_ADDRESS_LENGTH_INET6)
+        {
+            ProxyAddrInet6FW addressInet6 = addressInet6RO.tryWrap(buffer, progress, limit);
+
+            if (addressInet6 == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            final OctetsFW source = addressInet6.source();
+            final OctetsFW destination = addressInet6.destination();
+            final int sourcePort = addressInet6.sourcePort();
+            final int destinationPort = addressInet6.destinationPort();
+
+            if (net.decodeSlot == NO_SLOT)
+            {
+                net.decodeSlot = decodePool.acquire(net.initialId);
+            }
+            assert net.decodeSlot != NO_SLOT;
+
+            final MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            decodeBuf.putInt(net.decodeOffset, router.typeId());
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            ProxyAddressFW address = addressRW
+                    .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
+                    .inet6(i -> i.protocol(t -> t.set(net.decodedTransport))
+                                 .source(source)
+                                 .destination(destination)
+                                 .sourcePort(sourcePort)
+                                 .destinationPort(destinationPort))
+                    .build();
+
+            net.decodableBytes -= addressInet6.sizeof();
+            net.decodeOffset += address.sizeof();
+            net.decodeLimit = net.decodeOffset;
+            progress = addressInet6.limit();
+
+            decodeBuf.putInt(net.decodeOffset, Integer.BYTES);
+            net.decodeOffset += Integer.BYTES;
+            decodeBuf.putInt(net.decodeOffset, 0);
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            if (net.decodableBytes == 0)
+            {
+                net.onNetReady(traceId, authorization);
+                net.decoder = decodeData;
+            }
+            else
+            {
+                net.decoder = decodeProxyTypeLengthValue;
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyUnix(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length >= PROXY_ADDRESS_LENGTH_UNIX)
+        {
+            ProxyAddrUnixFW addressUnix = addressUnixRO.tryWrap(buffer, progress, limit);
+
+            if (addressUnix == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            final OctetsFW source = addressUnix.source();
+            final OctetsFW destination = addressUnix.destination();
+
+            if (net.decodeSlot == NO_SLOT)
+            {
+                net.decodeSlot = decodePool.acquire(net.initialId);
+            }
+            assert net.decodeSlot != NO_SLOT;
+
+            final MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            decodeBuf.putInt(net.decodeOffset, router.typeId());
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            ProxyAddressFW address = addressRW
+                    .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
+                    .inet6(i -> i.protocol(t -> t.set(net.decodedTransport))
+                                 .source(source)
+                                 .destination(destination))
+                    .build();
+
+            net.decodableBytes -= addressUnix.sizeof();
+            net.decodeOffset += address.sizeof();
+            net.decodeLimit = net.decodeOffset;
+            progress = addressUnix.limit();
+
+            decodeBuf.putInt(net.decodeOffset, Integer.BYTES);
+            net.decodeOffset += Integer.BYTES;
+            decodeBuf.putInt(net.decodeOffset, 0);
+            net.decodeOffset += Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+
+            if (net.decodableBytes == 0)
+            {
+                net.onNetReady(traceId, authorization);
+                net.decoder = decodeData;
+            }
+            else
+            {
+                net.decoder = decodeProxyTypeLengthValue;
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTypeLengthValue(
         ProxyNetServer net,
         long traceId,
         long authorization,

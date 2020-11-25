@@ -143,7 +143,7 @@
         <artifactId>nukleus-maven-plugin</artifactId>
         <version>${nukleus.plugin.version}</version>
         <configuration>
-          <scopeNames>core proxy</scopeNames>
+          <scopeNames>core proxy internal</scopeNames>
           <packageName>org.reaktivity.nukleus.proxy.internal.types</packageName>
         </configuration>
         <executions>
@@ -169,6 +169,9 @@
           <excludes>
             <exclude>src/conf/**</exclude>
           </excludes>
+          <mapping>
+            <idl>SLASHSTAR_STYLE</idl>
+          </mapping>
           <failIfUnknown>true</failIfUnknown>
         </configuration>
         <executions>

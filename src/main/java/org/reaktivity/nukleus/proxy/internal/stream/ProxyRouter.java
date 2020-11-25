@@ -65,6 +65,11 @@ public final class ProxyRouter
         this.typeId = typeId;
     }
 
+    public int typeId()
+    {
+        return typeId;
+    }
+
     public RouteFW resolveApp(
         BeginFW begin)
     {
