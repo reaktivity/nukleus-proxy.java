@@ -1341,11 +1341,6 @@ public final class ProxyServerFactory implements StreamFactory
             progress += Byte.BYTES;
 
             int remaining = buffer.getShort(progress, BIG_ENDIAN) & 0xffff;
-            if (remaining == 0)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
 
             net.doNetWindow(traceId, authorization, budgetId, 0, 0, remaining, 0);
 
@@ -1678,7 +1673,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -1692,13 +1686,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW alpn = tlvBounded.get(tlvStringRO::tryWrap);
-            if (alpn == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW alpn = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .alpn(alpn)
                     .build();
@@ -1734,7 +1722,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -1748,13 +1735,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW authority = tlvBounded.get(tlvStringRO::tryWrap);
-            if (authority == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW authority = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .authority(authority)
                     .build();
@@ -1863,7 +1844,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -1877,12 +1857,6 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW uniqueId = tlv.value();
-            if (uniqueId == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .identity(i -> i.value(uniqueId))
                     .build();
@@ -2012,7 +1986,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2026,13 +1999,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW version = tlvBounded.get(tlvStringRO::tryWrap);
-            if (version == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW version = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .secure(s -> s.protocol(version))
                     .build();
@@ -2069,7 +2036,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2083,13 +2049,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW commonName = tlvBounded.get(tlvStringRO::tryWrap);
-            if (commonName == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW commonName = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .secure(s -> s.name(commonName))
                     .build();
@@ -2126,7 +2086,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2140,13 +2099,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW cipher = tlvBounded.get(tlvStringRO::tryWrap);
-            if (cipher == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW cipher = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .secure(s -> s.cipher(cipher))
                     .build();
@@ -2183,7 +2136,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2197,13 +2149,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW signature = tlvBounded.get(tlvStringRO::tryWrap);
-            if (signature == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW signature = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .secure(s -> s.signature(signature))
                     .build();
@@ -2240,7 +2186,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2254,13 +2199,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW key = tlvBounded.get(tlvStringRO::tryWrap);
-            if (key == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW key = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .secure(s -> s.key(key))
                     .build();
@@ -2329,7 +2268,6 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
-        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -2343,13 +2281,7 @@ public final class ProxyServerFactory implements StreamFactory
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
-            String16FW namespace = tlvBounded.get(tlvStringRO::tryWrap);
-            if (namespace == null)
-            {
-                net.cleanup(traceId, authorization);
-                break decode;
-            }
-
+            String16FW namespace = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .namespace(namespace)
                     .build();
@@ -2401,20 +2333,12 @@ public final class ProxyServerFactory implements StreamFactory
         int index,
         int length)
     {
-        byte[] array = buffer.byteArray();
-        if (array != null)
-        {
-            crc32c.update(array, index, length);
-        }
-        else
-        {
-            ByteBuffer buf = buffer.byteBuffer();
-            int position = buf.position();
-            int limit = buf.limit();
-            buf.clear().position(index).limit(index + length);
-            crc32c.update(buf);
-            buf.clear().position(position).limit(limit);
-        }
+        ByteBuffer buf = buffer.byteBuffer();
+        int position = buf.position();
+        int limit = buf.limit();
+        buf.clear().position(index).limit(index + length);
+        crc32c.update(buf);
+        buf.clear().position(position).limit(limit);
     }
 
     @FunctionalInterface

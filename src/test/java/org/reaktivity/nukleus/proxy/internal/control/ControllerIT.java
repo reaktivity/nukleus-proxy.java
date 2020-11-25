@@ -66,7 +66,7 @@ public class ControllerIT
         k3po.start();
 
         reaktor.controller(ProxyController.class)
-               .route(SERVER, "proxy#0", "target#0")
+               .route(SERVER, "net#0", "app#0")
                .get();
 
         k3po.finish();
@@ -100,7 +100,7 @@ public class ControllerIT
             };
 
             reaktor.controller(ProxyController.class)
-                .route(SERVER, "proxy#0", "target#0", jsonb.toJson(extension))
+                .route(SERVER, "net#0", "app#0", jsonb.toJson(extension))
                 .get();
         }
 
@@ -116,7 +116,7 @@ public class ControllerIT
         k3po.start();
 
         reaktor.controller(ProxyController.class)
-               .route(CLIENT, "proxy#0", "target#0")
+               .route(CLIENT, "app#0", "net#0")
                .get();
 
         k3po.finish();
@@ -133,7 +133,7 @@ public class ControllerIT
         k3po.start();
 
         long routeId = reaktor.controller(ProxyController.class)
-                  .route(SERVER, "proxy#0", "target#0")
+                  .route(SERVER, "net#0", "app#0")
                   .get();
 
         k3po.notifyBarrier("ROUTED_SERVER");
@@ -155,7 +155,7 @@ public class ControllerIT
         k3po.start();
 
         long routeId = reaktor.controller(ProxyController.class)
-                  .route(CLIENT, "proxy#0", "target#0")
+                  .route(CLIENT, "app#0", "net#0")
                   .get();
 
         k3po.notifyBarrier("ROUTED_CLIENT");

@@ -252,6 +252,16 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
+        "${client}/connected.tcp4.noop/client",
+        "${server}/connected.tcp4.noop/server"})
+    public void shouldConnectTcp4WithNoop() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
         "${client}/connected.tcp4.ssl/client",
         "${server}/connected.tcp4.ssl/server"})
     public void shouldConnectTcp4WithSsl() throws Exception
@@ -275,6 +285,26 @@ public class ProxyServerIT
         "${client}/connected.tcp4.ssl.client.cert.session/client",
         "${server}/connected.tcp4.ssl.client.cert.session/server"})
     public void shouldConnectTcp4WithSslClientCertificateSession() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.tcp4.ssl.experimental/client",
+        "${server}/connected.tcp4.ssl.experimental/server"})
+    public void shouldConnectTcp4WithSslExperimental() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.tcp4.experimental/client",
+        "${server}/connected.tcp4.experimental/server"})
+    public void shouldConnectTcp4WithExperimental() throws Exception
     {
         k3po.finish();
     }
@@ -332,6 +362,24 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
+        "${client}/rejected.header.mismatch/client"})
+    public void shouldRejectHeaderMismatch() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.header.version.mismatch/client"})
+    public void shouldRejectHeaderVersionMismatch() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
         "${client}/rejected.tcp4.crc32c.mismatch/client"})
     public void shouldRejectTcp4WithCrc32cMismatch() throws Exception
     {
@@ -352,6 +400,60 @@ public class ProxyServerIT
         "${route}/server/controller",
         "${client}/rejected.tcp4.crc32c.underflow/client"})
     public void shouldRejectTcp4WithCrc32cUnderflow() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.tcp4.ssl.underflow/client"})
+    public void shouldRejectTcp4WithSslUnderflow() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.tcp4.underflow/client"})
+    public void shouldRejectTcp4Underflow() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.tcp6.underflow/client"})
+    public void shouldRejectTcp6Underflow() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.sock.stream.underflow/client"})
+    public void shouldRejectSockStreamUnderflow() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.address.family.mismatch/client"})
+    public void shouldRejectAddressFamilyMismatch() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/rejected.command.mismatch/client"})
+    public void shouldRejectCommandMismatch() throws Exception
     {
         k3po.finish();
     }
