@@ -51,7 +51,7 @@
 
     <k3po.version>3.1.0</k3po.version>
 
-    <nukleus.plugin.version>0.76</nukleus.plugin.version>
+    <nukleus.plugin.version>0.77</nukleus.plugin.version>
 
     <nukleus.proxy.spec.version>develop-SNAPSHOT</nukleus.proxy.spec.version>
     <reaktor.version>0.146</reaktor.version>
