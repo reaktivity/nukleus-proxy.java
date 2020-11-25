@@ -97,57 +97,40 @@ public final class ProxyClientFactory implements StreamFactory
 
         if ((streamId & 0x0000_0000_0000_0001L) != 0L)
         {
-            newStream = newInitialStream(begin, sender);
+            final RouteFW route = router.resolveApp(begin);
+            if (route != null)
+            {
+                final long routeId = begin.routeId();
+                final long initialId = begin.streamId();
+                final long resolvedId = route.correlationId();
+
+                newStream = new ProxyAppClient(routeId, initialId, sender, resolvedId)::onAppMessage;
+            }
         }
         else
         {
-            newStream = newReplyStream(begin, sender);
+            final long replyId = begin.streamId();
+
+            newStream = correlations.remove(replyId);
         }
 
         return newStream;
     }
 
-    private MessageConsumer newInitialStream(
-        final BeginFW begin,
-        final MessageConsumer sender)
-    {
-        MessageConsumer newStream = null;
-
-        final RouteFW route = router.resolveApp(begin);
-        if (route != null)
-        {
-            final long routeId = begin.routeId();
-            final long initialId = begin.streamId();
-            final long resolvedId = route.correlationId();
-
-            newStream = new ProxyApplicationClient(routeId, initialId, sender, resolvedId)::onApplication;
-        }
-
-        return newStream;
-    }
-
-    private MessageConsumer newReplyStream(
-        final BeginFW begin,
-        final MessageConsumer sender)
-    {
-        final long replyId = begin.streamId();
-        return correlations.remove(replyId);
-    }
-
-    private final class ProxyApplicationClient
+    private final class ProxyAppClient
     {
         private final MessageConsumer receiver;
         private final long routeId;
         private final long initialId;
         private final long replyId;
 
-        private final ProxyNetworkClient network;
+        private final ProxyNetClient net;
 
         private int initialBudget;
         private int replyBudget;
         private int replyPadding;
 
-        private ProxyApplicationClient(
+        private ProxyAppClient(
             long routeId,
             long initialId,
             MessageConsumer receiver,
@@ -157,10 +140,10 @@ public final class ProxyClientFactory implements StreamFactory
             this.initialId = initialId;
             this.receiver = receiver;
             this.replyId = supplyReplyId.applyAsLong(initialId);
-            this.network = new ProxyNetworkClient(this, resolvedId);
+            this.net = new ProxyNetClient(this, resolvedId);
         }
 
-        private void onApplication(
+        private void onAppMessage(
             int msgTypeId,
             DirectBuffer buffer,
             int index,
@@ -170,34 +153,34 @@ public final class ProxyClientFactory implements StreamFactory
             {
             case BeginFW.TYPE_ID:
                 final BeginFW begin = beginRO.wrap(buffer, index, index + length);
-                onApplicationBegin(begin);
+                onAppBegin(begin);
                 break;
             case DataFW.TYPE_ID:
                 final DataFW data = dataRO.wrap(buffer, index, index + length);
-                onApplicationData(data);
+                onAppData(data);
                 break;
             case EndFW.TYPE_ID:
                 final EndFW end = endRO.wrap(buffer, index, index + length);
-                onApplicationEnd(end);
+                onAppEnd(end);
                 break;
             case AbortFW.TYPE_ID:
                 final AbortFW abort = abortRO.wrap(buffer, index, index + length);
-                onApplicationAbort(abort);
+                onAppAbort(abort);
                 break;
             case WindowFW.TYPE_ID:
                 final WindowFW window = windowRO.wrap(buffer, index, index + length);
-                onApplicationWindow(window);
+                onAppWindow(window);
                 break;
             case ResetFW.TYPE_ID:
                 final ResetFW reset = resetRO.wrap(buffer, index, index + length);
-                onApplicationReset(reset);
+                onAppReset(reset);
                 break;
             default:
                 break;
             }
         }
 
-        private void onApplicationBegin(
+        private void onAppBegin(
             BeginFW begin)
         {
             final long traceId = begin.traceId();
@@ -208,10 +191,10 @@ public final class ProxyClientFactory implements StreamFactory
             final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
             // TODO; encoder slot, encode beginEx, await window credit to flush
 
-            network.doNetworkBegin(traceId, authorization, affinity);
+            net.doNetBegin(traceId, authorization, affinity);
         }
 
-        private void onApplicationData(
+        private void onAppData(
             DataFW data)
         {
             final long traceId = data.traceId();
@@ -225,34 +208,34 @@ public final class ProxyClientFactory implements StreamFactory
 
             if (initialBudget < 0)
             {
-                doApplicationReset(traceId, authorization);
-                network.doNetworkAbort(traceId, authorization);
+                doAppReset(traceId, authorization);
+                net.doNetAbort(traceId, authorization);
             }
             else
             {
-                network.doNetworkData(traceId, authorization, budgetId, flags, reserved, payload);
+                net.doNetData(traceId, authorization, budgetId, flags, reserved, payload);
             }
         }
 
-        private void onApplicationEnd(
+        private void onAppEnd(
             EndFW end)
         {
             final long traceId = end.traceId();
             final long authorization = end.authorization();
 
-            network.doNetworkEnd(traceId, authorization);
+            net.doNetEnd(traceId, authorization);
         }
 
-        private void onApplicationAbort(
+        private void onAppAbort(
             AbortFW abort)
         {
             final long traceId = abort.traceId();
             final long authorization = abort.authorization();
 
-            network.doNetworkAbort(traceId, authorization);
+            net.doNetAbort(traceId, authorization);
         }
 
-        private void onApplicationWindow(
+        private void onAppWindow(
             WindowFW window)
         {
             final long traceId = window.traceId();
@@ -264,28 +247,28 @@ public final class ProxyClientFactory implements StreamFactory
             replyBudget += credit;
             replyPadding = padding;
 
-            network.doNetworkWindow(traceId, authorization, budgetId, replyBudget, replyPadding);
+            net.doNetWindow(traceId, authorization, budgetId, replyBudget, replyPadding);
         }
 
-        private void onApplicationReset(
+        private void onAppReset(
             ResetFW reset)
         {
             final long traceId = reset.traceId();
             final long authorization = reset.authorization();
 
-            network.doNetworkReset(traceId, authorization);
+            net.doNetReset(traceId, authorization);
         }
 
-        private void doApplicationBegin(
+        private void doAppBegin(
             long traceId,
             long authorization,
             long affinity)
         {
-            router.setThrottle(replyId, this::onApplication);
+            router.setThrottle(replyId, this::onAppMessage);
             doBegin(receiver, routeId, replyId, traceId, authorization, affinity);
         }
 
-        private void doApplicationData(
+        private void doAppData(
             long traceId,
             long authorization,
             int flags,
@@ -299,28 +282,28 @@ public final class ProxyClientFactory implements StreamFactory
             doData(receiver, routeId, replyId, traceId, authorization, flags, budgetId, reserved, payload);
         }
 
-        private void doApplicationEnd(
+        private void doAppEnd(
             long traceId,
             long authorization)
         {
             doEnd(receiver, routeId, replyId, traceId, authorization);
         }
 
-        private void doApplicationAbort(
+        private void doAppAbort(
             long traceId,
             long authorization)
         {
             doAbort(receiver, routeId, replyId, traceId, authorization);
         }
 
-        private void doApplicationReset(
+        private void doAppReset(
             long traceId,
             long authorization)
         {
             doReset(receiver, routeId, initialId, traceId, authorization);
         }
 
-        private void doApplicationWindow(
+        private void doAppWindow(
             long traceId,
             long authorization,
             long budgetId,
@@ -339,9 +322,9 @@ public final class ProxyClientFactory implements StreamFactory
 
     }
 
-    private final class ProxyNetworkClient
+    private final class ProxyNetClient
     {
-        private final ProxyApplicationClient application;
+        private final ProxyAppClient app;
         private final long routeId;
         private final long initialId;
         private final long replyId;
@@ -351,18 +334,18 @@ public final class ProxyClientFactory implements StreamFactory
         private int initialPadding;
         private int replyBudget;
 
-        private ProxyNetworkClient(
-            ProxyApplicationClient application,
+        private ProxyNetClient(
+            ProxyAppClient application,
             long routeId)
         {
-            this.application = application;
+            this.app = application;
             this.routeId = routeId;
             this.initialId = supplyInitialId.applyAsLong(routeId);
             this.replyId =  supplyReplyId.applyAsLong(initialId);
             this.receiver = router.supplyReceiver(initialId);
         }
 
-        private void onNetwork(
+        private void onNetMessage(
             int msgTypeId,
             DirectBuffer buffer,
             int index,
@@ -372,44 +355,44 @@ public final class ProxyClientFactory implements StreamFactory
             {
             case BeginFW.TYPE_ID:
                 final BeginFW begin = beginRO.wrap(buffer, index, index + length);
-                onNetworkBegin(begin);
+                onNetBegin(begin);
                 break;
             case DataFW.TYPE_ID:
                 final DataFW data = dataRO.wrap(buffer, index, index + length);
-                onNetworkData(data);
+                onNetData(data);
                 break;
             case EndFW.TYPE_ID:
                 final EndFW end = endRO.wrap(buffer, index, index + length);
-                onNetworkEnd(end);
+                onNetEnd(end);
                 break;
             case AbortFW.TYPE_ID:
                 final AbortFW abort = abortRO.wrap(buffer, index, index + length);
-                onNetworkAbort(abort);
+                onNetAbort(abort);
                 break;
             case WindowFW.TYPE_ID:
                 final WindowFW window = windowRO.wrap(buffer, index, index + length);
-                onNetworkWindow(window);
+                onNetWindow(window);
                 break;
             case ResetFW.TYPE_ID:
                 final ResetFW reset = resetRO.wrap(buffer, index, index + length);
-                onNetworkReset(reset);
+                onNetReset(reset);
                 break;
             default:
                 break;
             }
         }
 
-        private void onNetworkBegin(
+        private void onNetBegin(
             BeginFW begin)
         {
             final long traceId = begin.traceId();
             final long authorization = begin.authorization();
             final long affinity = begin.affinity();
 
-            application.doApplicationBegin(traceId, authorization, affinity);
+            app.doAppBegin(traceId, authorization, affinity);
         }
 
-        private void onNetworkData(
+        private void onNetData(
             DataFW data)
         {
             final long authorization = data.authorization();
@@ -423,34 +406,34 @@ public final class ProxyClientFactory implements StreamFactory
 
             if (replyBudget < 0)
             {
-                doNetworkReset(traceId, authorization);
-                application.doApplicationAbort(traceId, authorization);
+                doNetReset(traceId, authorization);
+                app.doAppAbort(traceId, authorization);
             }
             else
             {
-                application.doApplicationData(traceId, authorization, flags, budgetId, reserved, payload);
+                app.doAppData(traceId, authorization, flags, budgetId, reserved, payload);
             }
         }
 
-        private void onNetworkEnd(
+        private void onNetEnd(
             EndFW end)
         {
             final long traceId = end.traceId();
             final long authorization = end.authorization();
 
-            application.doApplicationEnd(traceId, authorization);
+            app.doAppEnd(traceId, authorization);
         }
 
-        private void onNetworkAbort(
+        private void onNetAbort(
             AbortFW abort)
         {
             final long traceId = abort.traceId();
             final long authorization = abort.authorization();
 
-            application.doApplicationAbort(traceId, authorization);
+            app.doAppAbort(traceId, authorization);
         }
 
-        private void onNetworkWindow(
+        private void onNetWindow(
             WindowFW window)
         {
             final long traceId = window.traceId();
@@ -462,29 +445,29 @@ public final class ProxyClientFactory implements StreamFactory
             initialBudget += credit;
             initialPadding = padding;
 
-            application.doApplicationWindow(traceId, authorization, budgetId, initialBudget, initialPadding);
+            app.doAppWindow(traceId, authorization, budgetId, initialBudget, initialPadding);
         }
 
-        private void onNetworkReset(
+        private void onNetReset(
             ResetFW reset)
         {
             final long traceId = reset.traceId();
             final long authorization = reset.authorization();
 
-            application.doApplicationReset(traceId, authorization);
+            app.doAppReset(traceId, authorization);
         }
 
-        private void doNetworkBegin(
+        private void doNetBegin(
             long traceId,
             long authorization,
             long affinity)
         {
-            correlations.put(replyId, this::onNetwork);
-            router.setThrottle(initialId, this::onNetwork);
+            correlations.put(replyId, this::onNetMessage);
+            router.setThrottle(initialId, this::onNetMessage);
             doBegin(receiver, affinity, initialId, traceId, authorization, affinity);
         }
 
-        private void doNetworkData(
+        private void doNetData(
             long traceId,
             long authorization,
             long budgetId,
@@ -498,21 +481,21 @@ public final class ProxyClientFactory implements StreamFactory
             doData(receiver, reserved, initialId, traceId, authorization, flags, budgetId, reserved, payload);
         }
 
-        private void doNetworkEnd(
+        private void doNetEnd(
             long traceId,
             long authorization)
         {
             doEnd(receiver, authorization, initialId, traceId, authorization);
         }
 
-        private void doNetworkAbort(
+        private void doNetAbort(
             long traceId,
             long authorization)
         {
             doAbort(receiver, authorization, initialId, traceId, authorization);
         }
 
-        private void doNetworkReset(
+        private void doNetReset(
             long traceId,
             long authorization)
         {
@@ -520,7 +503,7 @@ public final class ProxyClientFactory implements StreamFactory
             doReset(receiver, routeId, replyId, traceId, authorization);
         }
 
-        private void doNetworkWindow(
+        private void doNetWindow(
             long traceId,
             long authorization,
             long budgetId,
