@@ -112,6 +112,26 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
+        "${client}/connected.local.client.sent.abort/client",
+        "${server}/connected.local.client.sent.abort/server"})
+    public void shouldConnectLocalClientSendsAbort() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.local.client.sent.reset/client",
+        "${server}/connected.local.client.sent.reset/server"})
+    public void shouldConnectLocalClientSendsReset() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
         "${client}/connected.local.server.sent.data/client",
         "${server}/connected.local.server.sent.data/server"})
     public void shouldConnectLocalServerSendsData() throws Exception
@@ -145,6 +165,26 @@ public class ProxyServerIT
         "${client}/connected.local.server.sent.close/client",
         "${server}/connected.local.server.sent.close/server"})
     public void shouldConnectLocalServerSendsClose() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.local.server.sent.abort/client",
+        "${server}/connected.local.server.sent.abort/server"})
+    public void shouldConnectLocalServerSendsAbort() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
+        "${client}/connected.local.server.sent.reset/client",
+        "${server}/connected.local.server.sent.reset/server"})
+    public void shouldConnectLocalServerSendsReset() throws Exception
     {
         k3po.finish();
     }

@@ -288,6 +288,8 @@ public final class ProxyServerFactory implements StreamFactory
             state = ProxyState.openedInitial(state);
             crc32c = new CRC32C();
 
+            router.setThrottle(replyId, this::onNetMessage);
+
             if (beginEx != null)
             {
                 decodeSlot = decodePool.acquire(initialId);
@@ -456,7 +458,6 @@ public final class ProxyServerFactory implements StreamFactory
             long authorization,
             long affinity)
         {
-            router.setThrottle(replyId, this::onNetMessage);
             doBegin(receiver, routeId, replyId, traceId, authorization, affinity, EMPTY_OCTETS);
             state = ProxyState.openingReply(state);
         }
