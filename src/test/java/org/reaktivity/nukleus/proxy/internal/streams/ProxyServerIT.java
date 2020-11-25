@@ -182,6 +182,16 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
+        "${client}/connected.tcp4.crc32c/client",
+        "${server}/connected.tcp4.crc32c/server"})
+    public void shouldConnectTcp4WithCrc32c() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server/controller",
         "${client}/connected.tcp4.identity/client",
         "${server}/connected.tcp4.identity/server"})
     public void shouldConnectTcp4WithIdentity() throws Exception
@@ -282,7 +292,7 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
-        "${client}/rejected.tcp4.crc32c.mismatch/server"})
+        "${client}/rejected.tcp4.crc32c.mismatch/client"})
     public void shouldRejectTcp4WithCrc32cMismatch() throws Exception
     {
         k3po.finish();
@@ -291,7 +301,7 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
-        "${client}/rejected.tcp4.crc32c.overflow/server"})
+        "${client}/rejected.tcp4.crc32c.overflow/client"})
     public void shouldRejectTcp4WithCrc32cOverflow() throws Exception
     {
         k3po.finish();
@@ -300,7 +310,7 @@ public class ProxyServerIT
     @Test
     @Specification({
         "${route}/server/controller",
-        "${client}/rejected.tcp4.crc32c.underflow/server"})
+        "${client}/rejected.tcp4.crc32c.underflow/client"})
     public void shouldRejectTcp4WithCrc32cUnderflow() throws Exception
     {
         k3po.finish();

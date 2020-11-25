@@ -20,8 +20,10 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.Objects.requireNonNull;
 import static org.reaktivity.nukleus.buffer.BufferPool.NO_SLOT;
 
+import java.nio.ByteBuffer;
 import java.util.function.LongUnaryOperator;
 import java.util.function.ToIntFunction;
+import java.util.zip.CRC32C;
 
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
@@ -197,6 +199,8 @@ public final class ProxyServerFactory implements StreamFactory
 
         private ProxyAddressFamily decodedFamily;
         private ProxyAddressProtocol decodedTransport;
+        private long decodedCrc32c = -1L;
+        private CRC32C crc32c;
         private int decodableBytes;
 
         private int state;
@@ -275,6 +279,7 @@ public final class ProxyServerFactory implements StreamFactory
             final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
 
             state = ProxyState.openedInitial(state);
+            crc32c = new CRC32C();
 
             if (beginEx != null)
             {
@@ -311,7 +316,7 @@ public final class ProxyServerFactory implements StreamFactory
             }
             else
             {
-                DirectBuffer buffer = payload.buffer();
+                MutableDirectBuffer buffer = (MutableDirectBuffer) payload.buffer();
                 int offset = payload.offset();
                 int limit = payload.limit();
                 int reserved = data.reserved();
@@ -478,7 +483,7 @@ public final class ProxyServerFactory implements StreamFactory
             long traceId,
             long authorization)
         {
-            if (!ProxyState.replyClosed(state))
+            if (ProxyState.replyOpening(state) && !ProxyState.replyClosed(state))
             {
                 doAbort(receiver, routeId, replyId, traceId, authorization);
                 state = ProxyState.closedReply(state);
@@ -556,7 +561,7 @@ public final class ProxyServerFactory implements StreamFactory
             int flags,
             long budgetId,
             int reserved,
-            DirectBuffer buffer,
+            MutableDirectBuffer buffer,
             int offset,
             int limit)
         {
@@ -642,7 +647,10 @@ public final class ProxyServerFactory implements StreamFactory
             cleanupDecodeSlot(true);
             doNetReset(traceId, authorization);
             doNetAbort(traceId, authorization);
-            app.cleanup(traceId, authorization);
+            if (app != null)
+            {
+                app.cleanup(traceId, authorization);
+            }
             decoder = decodeIgnoreAll;
         }
     }
@@ -1215,6 +1223,7 @@ public final class ProxyServerFactory implements StreamFactory
         decode:
         if (length >= Byte.BYTES + Short.BYTES)
         {
+            int anchor = progress;
             int transport = buffer.getByte(progress) & 0x0f;
 
             if (transport > 3)
@@ -1227,6 +1236,8 @@ public final class ProxyServerFactory implements StreamFactory
             int remaining = buffer.getShort(progress, BIG_ENDIAN) & 0xffff;
 
             progress += Short.BYTES;
+
+            updateCRC32C(net.crc32c, buffer, anchor, progress - anchor);
 
             if (remaining == 0)
             {
@@ -1309,6 +1320,7 @@ public final class ProxyServerFactory implements StreamFactory
         decode:
         if (length >= Byte.BYTES + Short.BYTES)
         {
+            int anchor = progress;
             byte protocol = buffer.getByte(progress);
             int family = (protocol >> 4) & 0x0f;
             int transport = protocol & 0x0f;
@@ -1334,6 +1346,8 @@ public final class ProxyServerFactory implements StreamFactory
             net.decodableBytes = remaining;
 
             progress += Short.BYTES;
+
+            updateCRC32C(net.crc32c, buffer, anchor, progress - anchor);
 
             switch (net.decodedFamily)
             {
@@ -1428,15 +1442,9 @@ public final class ProxyServerFactory implements StreamFactory
             net.decodeOffset += Integer.BYTES;
             net.decodeLimit = net.decodeOffset;
 
-            if (net.decodableBytes == 0)
-            {
-                net.onNetReady(traceId, authorization);
-                net.decoder = decodeData;
-            }
-            else
-            {
-                net.decoder = decodeProxyTlv;
-            }
+            updateCRC32C(net.crc32c, addressInet4.buffer(), addressInet4.offset(), addressInet4.sizeof());
+
+            net.decoder = decodeProxyTlv;
         }
 
         return progress;
@@ -1503,15 +1511,9 @@ public final class ProxyServerFactory implements StreamFactory
             net.decodeOffset += Integer.BYTES;
             net.decodeLimit = net.decodeOffset;
 
-            if (net.decodableBytes == 0)
-            {
-                net.onNetReady(traceId, authorization);
-                net.decoder = decodeData;
-            }
-            else
-            {
-                net.decoder = decodeProxyTlv;
-            }
+            updateCRC32C(net.crc32c, addressInet6.buffer(), addressInet6.offset(), addressInet6.sizeof());
+
+            net.decoder = decodeProxyTlv;
         }
 
         return progress;
@@ -1574,6 +1576,8 @@ public final class ProxyServerFactory implements StreamFactory
             net.decodeOffset += Integer.BYTES;
             net.decodeLimit = net.decodeOffset;
 
+            updateCRC32C(net.crc32c, addressUnix.buffer(), addressUnix.offset(), addressUnix.sizeof());
+
             net.decoder = decodeProxyTlv;
         }
 
@@ -1594,9 +1598,17 @@ public final class ProxyServerFactory implements StreamFactory
     {
         int length = limit - progress;
 
+        decode:
         if (net.decodableBytes == 0)
         {
-            // TODO: check CRC32C
+            if (net.decodedCrc32c != -1L && net.decodedCrc32c != net.crc32c.getValue())
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            net.crc32c = null;
+
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
@@ -1689,6 +1701,8 @@ public final class ProxyServerFactory implements StreamFactory
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
 
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
+
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
 
@@ -1743,6 +1757,8 @@ public final class ProxyServerFactory implements StreamFactory
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
 
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
+
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
 
@@ -1759,13 +1775,14 @@ public final class ProxyServerFactory implements StreamFactory
         int flags,
         long budgetId,
         int reserved,
-        DirectBuffer buffer,
+        MutableDirectBuffer buffer,
         int offset,
         int progress,
         int limit)
     {
         int length = limit - progress;
 
+        decode:
         if (length > 0)
         {
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
@@ -1773,7 +1790,16 @@ public final class ProxyServerFactory implements StreamFactory
             assert tlv != null;
             assert tlv.type() == 0x03;
 
-            int crc32c = tlv.value().value().getInt(0);
+            if (tlv.length() != Integer.BYTES)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            net.decodedCrc32c = tlv.value().value().getInt(0, BIG_ENDIAN) & 0xffff_ffffL;
+
+            buffer.putInt(tlv.offset() + ProxyTlvFW.FIELD_OFFSET_VALUE, 0);
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
 
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
@@ -1803,6 +1829,8 @@ public final class ProxyServerFactory implements StreamFactory
             ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
 
             assert tlv != null;
+
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
 
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
@@ -1856,6 +1884,8 @@ public final class ProxyServerFactory implements StreamFactory
 
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
 
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
@@ -2000,6 +2030,8 @@ public final class ProxyServerFactory implements StreamFactory
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
 
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
+
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
 
@@ -2054,6 +2086,8 @@ public final class ProxyServerFactory implements StreamFactory
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
             decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
 
+            updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
+
             net.decodableBytes -= tlv.sizeof();
             progress += tlv.sizeof();
 
@@ -2087,6 +2121,28 @@ public final class ProxyServerFactory implements StreamFactory
         return progress;
     }
 
+    private static void updateCRC32C(
+        CRC32C crc32c,
+        DirectBuffer buffer,
+        int index,
+        int length)
+    {
+        byte[] array = buffer.byteArray();
+        if (array != null)
+        {
+            crc32c.update(array, index, length);
+        }
+        else
+        {
+            ByteBuffer buf = buffer.byteBuffer();
+            int position = buf.position();
+            int limit = buf.limit();
+            buf.clear().position(index).limit(index + length);
+            crc32c.update(buf);
+            buf.clear().position(position).limit(limit);
+        }
+    }
+
     @FunctionalInterface
     private interface ProxyNetServerDecoder
     {
@@ -2097,7 +2153,7 @@ public final class ProxyServerFactory implements StreamFactory
             int flags,
             long budgetId,
             int reserved,
-            DirectBuffer buffer,
+            MutableDirectBuffer buffer,
             int offset,
             int progress,
             int limit);
