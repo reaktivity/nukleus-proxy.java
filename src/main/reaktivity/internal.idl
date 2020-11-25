@@ -40,5 +40,25 @@ scope internal
             octets[108] source;
             octets[108] destination;
         }
+
+        struct ProxyTlvValue
+        {
+            uint8 type;
+            uint16 length;
+            octets[length] value;
+        }
+
+        struct ProxyTlv
+        {
+            uint8 type;
+            uint16 length;
+            octets[length] value;
+        }
+
+        struct ProxyTlvSsl
+        {
+            uint8 client;
+            uint32 verify;
+        }
     }
 }

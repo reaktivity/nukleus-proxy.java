@@ -36,9 +36,13 @@ import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyInfoFW;
+import org.reaktivity.nukleus.proxy.internal.types.String16FW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet6FW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrUnixFW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyTlvFW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyTlvSslFW;
 import org.reaktivity.nukleus.proxy.internal.types.control.RouteFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.AbortFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.BeginFW;
@@ -90,8 +94,14 @@ public final class ProxyServerFactory implements StreamFactory
     private final ProxyAddrInet4FW addressInet4RO = new ProxyAddrInet4FW();
     private final ProxyAddrInet6FW addressInet6RO = new ProxyAddrInet6FW();
     private final ProxyAddrUnixFW addressUnixRO = new ProxyAddrUnixFW();
+    private final ProxyTlvFW tlvRO = new ProxyTlvFW();
+    private final ProxyTlvFW tlvSubRO = new ProxyTlvFW();
+    private final OctetsFW tlvBoundedRO = new OctetsFW();
+    private final String16FW tlvStringRO = new String16FW(BIG_ENDIAN);
+    private final ProxyTlvSslFW tlvSslRO = new ProxyTlvSslFW();
 
     private final ProxyAddressFW.Builder addressRW = new ProxyAddressFW.Builder();
+    private final ProxyInfoFW.Builder infoRW = new ProxyInfoFW.Builder();
 
     private final ProxyNetServerDecoder decodeHeader = this::decodeHeader;
     private final ProxyNetServerDecoder decodeVersion = this::decodeVersion;
@@ -101,7 +111,14 @@ public final class ProxyServerFactory implements StreamFactory
     private final ProxyNetServerDecoder decodeProxyInet4 = this::decodeProxyInet4;
     private final ProxyNetServerDecoder decodeProxyInet6 = this::decodeProxyInet6;
     private final ProxyNetServerDecoder decodeProxyUnix = this::decodeProxyUnix;
-    private final ProxyNetServerDecoder decodeProxyTypeLengthValue = this::decodeProxyTypeLengthValue;
+    private final ProxyNetServerDecoder decodeProxyTlv = this::decodeProxyTlv;
+    private final ProxyNetServerDecoder decodeProxyTlvAlpn = this::decodeProxyTlvAlpn;
+    private final ProxyNetServerDecoder decodeProxyTlvAuthority = this::decodeProxyTlvAuthority;
+    private final ProxyNetServerDecoder decodeProxyTlvCrc32c = this::decodeProxyTlvCrc32c;
+    private final ProxyNetServerDecoder decodeProxyTlvIgnore = this::decodeProxyTlvIgnore;
+    private final ProxyNetServerDecoder decodeProxyTlvUniqueId = this::decodeProxyTlvUniqueId;
+    private final ProxyNetServerDecoder decodeProxyTlvSsl = this::decodeProxyTlvSsl;
+    private final ProxyNetServerDecoder decodeProxyTlvNetns = this::decodeProxyTlvNetns;
     private final ProxyNetServerDecoder decodeIgnore = this::decodeIgnore;
     private final ProxyNetServerDecoder decodeIgnoreAll = this::decodeIgnoreAll;
     private final ProxyNetServerDecoder decodeData = this::decodeData;
@@ -612,6 +629,7 @@ public final class ProxyServerFactory implements StreamFactory
                 decodePool.release(decodeSlot);
                 decodeSlot = NO_SLOT;
                 decodeOffset = 0;
+                decodeLimit = 0;
                 decodeReserved = 0;
                 decodeFlags = 0;
             }
@@ -1417,7 +1435,7 @@ public final class ProxyServerFactory implements StreamFactory
             }
             else
             {
-                net.decoder = decodeProxyTypeLengthValue;
+                net.decoder = decodeProxyTlv;
             }
         }
 
@@ -1492,7 +1510,7 @@ public final class ProxyServerFactory implements StreamFactory
             }
             else
             {
-                net.decoder = decodeProxyTypeLengthValue;
+                net.decoder = decodeProxyTlv;
             }
         }
 
@@ -1524,8 +1542,8 @@ public final class ProxyServerFactory implements StreamFactory
                 break decode;
             }
 
-            final OctetsFW source = addressUnix.source();
-            final OctetsFW destination = addressUnix.destination();
+            OctetsFW source = addressUnix.source();
+            OctetsFW destination = addressUnix.destination();
 
             if (net.decodeSlot == NO_SLOT)
             {
@@ -1533,16 +1551,16 @@ public final class ProxyServerFactory implements StreamFactory
             }
             assert net.decodeSlot != NO_SLOT;
 
-            final MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             decodeBuf.putInt(net.decodeOffset, router.typeId());
             net.decodeOffset += Integer.BYTES;
             net.decodeLimit = net.decodeOffset;
 
             ProxyAddressFW address = addressRW
                     .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
-                    .inet6(i -> i.protocol(t -> t.set(net.decodedTransport))
-                                 .source(source)
-                                 .destination(destination))
+                    .unix(i -> i.protocol(t -> t.set(net.decodedTransport))
+                                .source(source)
+                                .destination(destination))
                     .build();
 
             net.decodableBytes -= addressUnix.sizeof();
@@ -1556,21 +1574,13 @@ public final class ProxyServerFactory implements StreamFactory
             net.decodeOffset += Integer.BYTES;
             net.decodeLimit = net.decodeOffset;
 
-            if (net.decodableBytes == 0)
-            {
-                net.onNetReady(traceId, authorization);
-                net.decoder = decodeData;
-            }
-            else
-            {
-                net.decoder = decodeProxyTypeLengthValue;
-            }
+            net.decoder = decodeProxyTlv;
         }
 
         return progress;
     }
 
-    private int decodeProxyTypeLengthValue(
+    private int decodeProxyTlv(
         ProxyNetServer net,
         long traceId,
         long authorization,
@@ -1582,7 +1592,474 @@ public final class ProxyServerFactory implements StreamFactory
         int progress,
         int limit)
     {
-        // TODO
+        int length = limit - progress;
+
+        if (net.decodableBytes == 0)
+        {
+            // TODO: check CRC32C
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            net.decodeOffset += size - Integer.BYTES;
+            net.decodeLimit = net.decodeOffset;
+            net.onNetReady(traceId, authorization);
+            net.decoder = decodeData;
+        }
+        else if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            if (tlv != null)
+            {
+                switch (tlv.type())
+                {
+                case 0x01:
+                    net.decoder = decodeProxyTlvAlpn;
+                    break;
+                case 0x02:
+                    net.decoder = decodeProxyTlvAuthority;
+                    break;
+                case 0x03:
+                    net.decoder = decodeProxyTlvCrc32c;
+                    break;
+                case 0x04:
+                    net.decoder = decodeProxyTlvIgnore;
+                    break;
+                case 0x05:
+                    net.decoder = decodeProxyTlvUniqueId;
+                    break;
+                case 0x20:
+                    net.decoder = decodeProxyTlvSsl;
+                    break;
+                case 0x30:
+                    net.decoder = decodeProxyTlvNetns;
+                    break;
+                default:
+                    net.decoder = decodeProxyTlvIgnore;
+                    break;
+                }
+            }
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvAlpn(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x01;
+
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
+
+            OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
+            String16FW alpn = tlvBounded.get(tlvStringRO::tryWrap);
+            if (alpn == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                    .alpn(alpn)
+                    .build();
+
+            size += info.sizeof();
+            items++;
+
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvAuthority(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x02;
+
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
+
+            OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
+            String16FW authority = tlvBounded.get(tlvStringRO::tryWrap);
+            if (authority == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                    .authority(authority)
+                    .build();
+
+            size += info.sizeof();
+            items++;
+
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvCrc32c(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x03;
+
+            int crc32c = tlv.value().value().getInt(0);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvIgnore(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvUniqueId(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x05;
+
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
+
+            OctetsFW uniqueId = tlv.value();
+            if (uniqueId == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                    .identity(i -> i.value(uniqueId))
+                    .build();
+
+            size += info.sizeof();
+            items++;
+
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvSsl(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x20;
+
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
+
+            ProxyTlvSslFW ssl = tlv.value().get(tlvSslRO::tryWrap);
+            if (ssl == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            for (ProxyTlvFW tlvSub = tlvSubRO.tryWrap(tlv.buffer(), ssl.limit(), tlv.limit());
+                tlvSub != null && tlvSub.limit() <= tlv.limit();
+                tlvSub = tlvSubRO.tryWrap(tlv.buffer(), tlvSub.limit(), tlv.limit()))
+            {
+                OctetsFW tlvSubBounded = tlvBoundedRO.wrap(tlvSub.buffer(), tlvSub.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH,
+                        tlvSub.limit());
+                switch (tlvSub.type())
+                {
+                case 0x21: // SSL_VERSION
+                {
+                    String16FW version = tlvSubBounded.get(tlvStringRO::tryWrap);
+                    if (version == null)
+                    {
+                        net.cleanup(traceId, authorization);
+                        break decode;
+                    }
+
+                    ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                            .secure(s -> s.protocol(version))
+                            .build();
+
+                    size += info.sizeof();
+                    items++;
+                    break;
+                }
+                case 0x22: // SSL_VN
+                {
+                    String16FW commonName = tlvSubBounded.get(tlvStringRO::tryWrap);
+                    if (commonName == null)
+                    {
+                        net.cleanup(traceId, authorization);
+                        break decode;
+                    }
+
+                    ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                            .secure(s -> s.name(commonName))
+                            .build();
+
+                    size += info.sizeof();
+                    items++;
+                    break;
+                }
+                case 0x23: // SSL_CIPHER
+                {
+                    String16FW cipher = tlvSubBounded.get(tlvStringRO::tryWrap);
+                    if (cipher == null)
+                    {
+                        net.cleanup(traceId, authorization);
+                        break decode;
+                    }
+
+                    ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                            .secure(s -> s.cipher(cipher))
+                            .build();
+
+                    size += info.sizeof();
+                    items++;
+                    break;
+                }
+                case 0x24: // SSL_SIG_ALG
+                {
+                    String16FW signature = tlvSubBounded.get(tlvStringRO::tryWrap);
+                    if (signature == null)
+                    {
+                        net.cleanup(traceId, authorization);
+                        break decode;
+                    }
+
+                    ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                            .secure(s -> s.signature(signature))
+                            .build();
+
+                    size += info.sizeof();
+                    items++;
+                    break;
+                }
+                case 0x25: // SSL_KEY_ALG
+                {
+                    String16FW key = tlvSubBounded.get(tlvStringRO::tryWrap);
+                    if (key == null)
+                    {
+                        net.cleanup(traceId, authorization);
+                        break decode;
+                    }
+
+                    ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                            .secure(s -> s.key(key))
+                            .build();
+
+                    size += info.sizeof();
+                    items++;
+                    break;
+                }
+                }
+            }
+
+
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
+        return progress;
+    }
+
+    private int decodeProxyTlvNetns(
+        ProxyNetServer net,
+        long traceId,
+        long authorization,
+        int flags,
+        long budgetId,
+        int reserved,
+        DirectBuffer buffer,
+        int offset,
+        int progress,
+        int limit)
+    {
+        int length = limit - progress;
+
+        decode:
+        if (length > 0)
+        {
+            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
+
+            assert tlv != null;
+            assert tlv.type() == 0x30;
+
+            assert net.decodeSlot != NO_SLOT;
+            MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
+            int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
+            int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
+
+            OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
+            String16FW namespace = tlvBounded.get(tlvStringRO::tryWrap);
+            if (namespace == null)
+            {
+                net.cleanup(traceId, authorization);
+                break decode;
+            }
+
+            ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
+                    .namespace(namespace)
+                    .build();
+
+            size += info.sizeof();
+            items++;
+
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES - Integer.BYTES, size);
+            decodeBuf.putInt(net.decodeOffset - Integer.BYTES, items);
+
+            net.decodableBytes -= tlv.sizeof();
+            progress += tlv.sizeof();
+
+            net.decoder = decodeProxyTlv;
+        }
+
         return progress;
     }
 
