@@ -53,7 +53,7 @@
 
     <nukleus.plugin.version>0.76</nukleus.plugin.version>
 
-    <nukleus.proxy.spec.version>0.3</nukleus.proxy.spec.version>
+    <nukleus.proxy.spec.version>develop-SNAPSHOT</nukleus.proxy.spec.version>
     <reaktor.version>0.146</reaktor.version>
   </properties>
   <dependencies>
