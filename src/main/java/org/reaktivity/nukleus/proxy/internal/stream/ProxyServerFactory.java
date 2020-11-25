@@ -1675,16 +1675,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x01;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW alpn = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -1724,16 +1720,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x02;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW authority = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -1774,11 +1766,7 @@ public final class ProxyServerFactory implements StreamFactory
         decode:
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x03;
-
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             if (tlv.length() != Integer.BYTES)
             {
                 net.cleanup(traceId, authorization);
@@ -1815,9 +1803,7 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
 
             updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
 
@@ -1846,16 +1832,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x05;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW uniqueId = tlv.value();
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
                     .identity(i -> i.value(uniqueId))
@@ -1895,11 +1877,7 @@ public final class ProxyServerFactory implements StreamFactory
         decode:
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x20;
-
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             ProxyTlvSslFW ssl = tlv.value().get(tlvSslRO::tryWrap);
             if (ssl == null)
             {
@@ -1988,16 +1966,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x21;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW version = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -2038,16 +2012,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x22;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW commonName = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -2088,16 +2058,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x23;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW cipher = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -2138,16 +2104,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x24;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW signature = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -2188,16 +2150,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x25;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW key = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
@@ -2238,9 +2196,7 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
 
             updateCRC32C(net.crc32c, tlv.buffer(), tlv.offset(), tlv.sizeof());
 
@@ -2270,16 +2226,12 @@ public final class ProxyServerFactory implements StreamFactory
 
         if (length > 0)
         {
-            ProxyTlvFW tlv = tlvRO.tryWrap(buffer, progress, limit);
-
-            assert tlv != null;
-            assert tlv.type() == 0x30;
-
             assert net.decodeSlot != NO_SLOT;
             MutableDirectBuffer decodeBuf = decodePool.buffer(net.decodeSlot);
             int size = decodeBuf.getInt(net.decodeOffset - Integer.BYTES - Integer.BYTES);
             int items = decodeBuf.getInt(net.decodeOffset - Integer.BYTES);
 
+            ProxyTlvFW tlv = tlvRO.wrap(buffer, progress, limit);
             OctetsFW tlvBounded = tlvBoundedRO.wrap(tlv.buffer(), tlv.offset() + ProxyTlvFW.FIELD_OFFSET_LENGTH, tlv.limit());
             String16FW namespace = tlvBounded.get(tlvStringRO::wrap);
             ProxyInfoFW info = infoRW.wrap(decodeBuf, net.decodeOffset + size - Integer.BYTES, decodePool.slotCapacity())
