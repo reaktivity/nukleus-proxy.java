@@ -46,10 +46,4 @@ final class ProxyElektron implements Elektron
     {
         return buildersByKind.get(kind);
     }
-
-    @Override
-    public String toString()
-    {
-        return String.format("%s %s", getClass().getSimpleName(), buildersByKind);
-    }
 }

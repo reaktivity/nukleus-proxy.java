@@ -78,7 +78,7 @@ public final class ProxyRouter
         final OctetsFW extension = begin.extension();
         final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
 
-        return resolveNet(routeId, authorization, beginEx);
+        return resolve(routeId, authorization, beginEx);
     }
 
     public RouteFW resolveNet(

@@ -21,6 +21,8 @@ import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol.S
 import static org.reaktivity.nukleus.route.RouteKind.CLIENT;
 import static org.reaktivity.nukleus.route.RouteKind.SERVER;
 import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET;
+import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
+import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.UNIX;
 
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
@@ -36,6 +38,8 @@ import org.kaazing.k3po.junit.rules.K3poRule;
 import org.reaktivity.nukleus.proxy.internal.ProxyController;
 import org.reaktivity.nukleus.proxy.internal.route.ProxyAddress;
 import org.reaktivity.nukleus.proxy.internal.route.ProxyExtension;
+import org.reaktivity.nukleus.proxy.internal.route.ProxyInfo;
+import org.reaktivity.nukleus.proxy.internal.route.ProxySecureInfo;
 import org.reaktivity.reaktor.test.ReaktorRule;
 
 public class ControllerIT
@@ -94,6 +98,161 @@ public class ControllerIT
                             destination = "0.0.0.0/0";
                             sourcePort = "0-65535";
                             destinationPort = "443";
+                        }
+                    };
+                }
+            };
+
+            reaktor.controller(ProxyController.class)
+                .route(SERVER, "net#0", "app#0", jsonb.toJson(extension))
+                .get();
+        }
+
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.tcp4.alpn/nukleus"
+    })
+    public void shouldRouteServerTcp4Alpn() throws Exception
+    {
+        k3po.start();
+
+        try (Jsonb jsonb = JsonbBuilder.create())
+        {
+            final ProxyExtension extension = new ProxyExtension()
+            {
+                {
+                    address = new ProxyAddress()
+                    {
+                        {
+                            family = INET;
+                            protocol = STREAM;
+                            source = "0.0.0.0/0";
+                            destination = "0.0.0.0/0";
+                            sourcePort = "0-65535";
+                            destinationPort = "443";
+                        }
+                    };
+                    info = new ProxyInfo()
+                    {
+                        {
+                            alpn = "echo";
+                        }
+                    };
+                }
+            };
+
+            reaktor.controller(ProxyController.class)
+                .route(SERVER, "net#0", "app#0", jsonb.toJson(extension))
+                .get();
+        }
+
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.tcp4.ssl.version/nukleus"
+    })
+    public void shouldRouteServerTcp4SslVersion() throws Exception
+    {
+        k3po.start();
+
+        try (Jsonb jsonb = JsonbBuilder.create())
+        {
+            final ProxyExtension extension = new ProxyExtension()
+            {
+                {
+                    address = new ProxyAddress()
+                    {
+                        {
+                            family = INET;
+                            protocol = STREAM;
+                            source = "0.0.0.0/0";
+                            destination = "0.0.0.0/0";
+                            sourcePort = "0-65535";
+                            destinationPort = "443";
+                        }
+                    };
+                    info = new ProxyInfo()
+                    {
+                        {
+                            secure = new ProxySecureInfo()
+                            {
+                                {
+                                    protocol = "TLSv1.3";
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+
+            reaktor.controller(ProxyController.class)
+                .route(SERVER, "net#0", "app#0", jsonb.toJson(extension))
+                .get();
+        }
+
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.tcp6/nukleus"
+    })
+    public void shouldRouteServerTcp6() throws Exception
+    {
+        k3po.start();
+
+        try (Jsonb jsonb = JsonbBuilder.create())
+        {
+            final ProxyExtension extension = new ProxyExtension()
+            {
+                {
+                    address = new ProxyAddress()
+                    {
+                        {
+                            family = INET6;
+                            protocol = STREAM;
+                            source = "::0/0";
+                            destination = "::0/0";
+                            sourcePort = "0-65535";
+                            destinationPort = "443";
+                        }
+                    };
+                }
+            };
+
+            reaktor.controller(ProxyController.class)
+                .route(SERVER, "net#0", "app#0", jsonb.toJson(extension))
+                .get();
+        }
+
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.sock.stream/nukleus"
+    })
+    public void shouldRouteServerSockStream() throws Exception
+    {
+        k3po.start();
+
+        try (Jsonb jsonb = JsonbBuilder.create())
+        {
+            final ProxyExtension extension = new ProxyExtension()
+            {
+                {
+                    address = new ProxyAddress()
+                    {
+                        {
+                            family = UNIX;
+                            protocol = STREAM;
+                            source = "";
+                            destination = "";
                         }
                     };
                 }

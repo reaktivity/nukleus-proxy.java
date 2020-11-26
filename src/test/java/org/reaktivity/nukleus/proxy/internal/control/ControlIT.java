@@ -67,6 +67,33 @@ public class ControlIT
 
     @Test
     @Specification({
+        "${route}/server.tcp4.alpn/controller"
+    })
+    public void shouldRouteServerTcp4Alpn() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.tcp6/controller"
+    })
+    public void shouldRouteServerTcp6() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/server.sock.stream/controller"
+    })
+    public void shouldRouteServerSockStream() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
         "${route}/client/controller"
     })
     public void shouldRouteClient() throws Exception

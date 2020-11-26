@@ -16,6 +16,7 @@
 package org.reaktivity.nukleus.proxy.internal.route;
 
 import static java.lang.Integer.parseInt;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.agrona.Strings.parseIntOrDefault;
 
 import java.net.InetAddress;
@@ -82,10 +83,8 @@ public class ProxyAddress
         case UNIX:
             builder.unix(i -> i
                 .protocol(p -> p.set(protocol))
-                .source(s -> buildAddressRange(source,
-                    (ip, l) -> s.prefix(p -> p.set(ip)).length(l)))
-                .destination(d -> buildAddressRange(destination,
-                    (ip, l) -> d.prefix(p -> p.set(ip)).length(l))));
+                .source(s -> s.prefix(p -> p.set(source.getBytes(UTF_8))))
+                .destination(d -> d.prefix(p -> p.set(destination.getBytes(UTF_8)))));
             break;
         }
     }

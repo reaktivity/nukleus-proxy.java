@@ -201,7 +201,7 @@ public class ProxyServerIT
 
     @Test
     @Specification({
-        "${route}/server/controller",
+        "${route}/server.tcp4/controller",
         "${client}/connected.tcp4/client",
         "${server}/connected.tcp4/server"})
     public void shouldConnectTcp4() throws Exception
@@ -211,7 +211,7 @@ public class ProxyServerIT
 
     @Test
     @Specification({
-        "${route}/server/controller",
+        "${route}/server.tcp4.alpn/controller",
         "${client}/connected.tcp4.alpn/client",
         "${server}/connected.tcp4.alpn/server"})
     public void shouldConnectTcp4WithAlpn() throws Exception
@@ -331,7 +331,7 @@ public class ProxyServerIT
 
     @Test
     @Specification({
-        "${route}/server/controller",
+        "${route}/server.tcp6/controller",
         "${client}/connected.tcp6/client",
         "${server}/connected.tcp6/server"})
     public void shouldConnectTcp6() throws Exception
@@ -351,7 +351,7 @@ public class ProxyServerIT
 
     @Test
     @Specification({
-        "${route}/server/controller",
+        "${route}/server.sock.stream/controller",
         "${client}/connected.sock.stream/client",
         "${server}/connected.sock.stream/server"})
     public void shouldConnectSockStream() throws Exception
