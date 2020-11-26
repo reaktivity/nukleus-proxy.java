@@ -19,6 +19,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.rules.RuleChain.outerRule;
 import static org.reaktivity.reaktor.test.ReaktorRule.EXTERNAL_AFFINITY_MASK;
 
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.DisableOnDebug;
@@ -63,7 +64,7 @@ public class ProxyClientIT
     @Specification({
         "${route}/client/controller",
         "${client}/connected.local.client.sent.data/client",
-        "${scripts}/connected.local.client.sent.data/server"})
+        "${server}/connected.local.client.sent.data/server"})
     public void shouldConnectLocalClientSendsData() throws Exception
     {
         k3po.finish();
@@ -84,7 +85,37 @@ public class ProxyClientIT
         "${route}/client/controller",
         "${client}/connected.local.client.sent.challenge/client",
         "${server}/connected.local.client.sent.challenge/server"})
-    public void shouldConnectLocalClientSendshallenge() throws Exception
+    public void shouldConnectLocalClientSendsChallenge() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.local.client.sent.abort/client",
+        "${server}/connected.local.client.sent.abort/server"})
+    public void shouldConnectLocalClientSendsAbort() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.local.client.sent.close/client",
+        "${server}/connected.local.client.sent.close/server"})
+    public void shouldConnectLocalClientSendsClose() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.local.client.sent.reset/client",
+        "${server}/connected.local.client.sent.reset/server"})
+    public void shouldConnectLocalClientSendsReset() throws Exception
     {
         k3po.finish();
     }
@@ -122,6 +153,36 @@ public class ProxyClientIT
     @Test
     @Specification({
         "${route}/client/controller",
+        "${client}/connected.local.server.sent.abort/client",
+        "${server}/connected.local.server.sent.abort/server"})
+    public void shouldConnectLocalServerSendsAbort() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.local.server.sent.close/client",
+        "${server}/connected.local.server.sent.close/server"})
+    public void shouldConnectLocalServerSendsClose() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.local.server.sent.reset/client",
+        "${server}/connected.local.server.sent.reset/server"})
+    public void shouldConnectLocalServerSendsReset() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
+        "${route}/client/controller",
         "${client}/connected.tcp4/client",
         "${server}/connected.tcp4/server"})
     public void shouldConnectTcp4() throws Exception
@@ -149,6 +210,17 @@ public class ProxyClientIT
         k3po.finish();
     }
 
+    @Ignore("TODO")
+    @Test
+    @Specification({
+        "${route}/client/controller",
+        "${client}/connected.tcp4.crc32c/client",
+        "${server}/connected.tcp4.crc32c/server"})
+    public void shouldConnectTcp4WithCrc32c() throws Exception
+    {
+        k3po.finish();
+    }
+
     @Test
     @Specification({
         "${route}/client/controller",
@@ -169,6 +241,7 @@ public class ProxyClientIT
         k3po.finish();
     }
 
+    @Ignore("TODO")
     @Test
     @Specification({
         "${route}/client/controller",
@@ -189,6 +262,7 @@ public class ProxyClientIT
         k3po.finish();
     }
 
+    @Ignore("TODO")
     @Test
     @Specification({
         "${route}/client/controller",
