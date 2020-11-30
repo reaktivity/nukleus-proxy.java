@@ -8,6 +8,7 @@
   <artifactId>nukleus-proxy</artifactId>
   <version>0.1</version>
   <name>Proxy Nukleus Implementation</name>
+  <description>Proxy Nukleus Implementation</description>
   <url>https://github.com/reaktivity/nukleus-proxy.java</url>
 
   <licenses>
