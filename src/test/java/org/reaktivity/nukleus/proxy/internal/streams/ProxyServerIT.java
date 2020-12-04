@@ -31,9 +31,9 @@ import org.reaktivity.reaktor.test.ReaktorRule;
 public class ProxyServerIT
 {
     private final K3poRule k3po = new K3poRule()
-            .addScriptRoot("route", "org/reaktivity/specification/nukleus/proxy/control/route")
-            .addScriptRoot("client", "org/reaktivity/specification/nukleus/proxy/streams/network.v2")
-            .addScriptRoot("server", "org/reaktivity/specification/nukleus/proxy/streams/application");
+        .addScriptRoot("route", "org/reaktivity/specification/nukleus/proxy/control/route")
+        .addScriptRoot("client", "org/reaktivity/specification/nukleus/proxy/streams/network.v2")
+        .addScriptRoot("server", "org/reaktivity/specification/nukleus/proxy/streams/application");
 
     private final TestRule timeout = new DisableOnDebug(new Timeout(10, SECONDS));
 

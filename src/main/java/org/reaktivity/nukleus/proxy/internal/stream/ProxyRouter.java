@@ -15,6 +15,8 @@
  */
 package org.reaktivity.nukleus.proxy.internal.stream;
 
+import java.util.regex.Pattern;
+
 import org.agrona.DirectBuffer;
 import org.agrona.collections.MutableBoolean;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -24,17 +26,21 @@ import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet6FW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInetFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchInet6FW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchInetFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocolFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressRangeInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressRangeInet6FW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressRangeInetFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressRangeUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyInfoFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyPortRangeFW;
+import org.reaktivity.nukleus.proxy.internal.types.String16FW;
 import org.reaktivity.nukleus.proxy.internal.types.control.ProxyRouteExFW;
 import org.reaktivity.nukleus.proxy.internal.types.control.RouteFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.BeginFW;
@@ -153,6 +159,8 @@ public final class ProxyRouter
             switch (addressMatch.kind())
             {
             case INET:
+                return matchesAddressInet(addressMatch.inet(), address.inet());
+            case INET4:
                 return matchesAddressInet4(addressMatch.inet4(), address.inet4());
             case INET6:
                 return matchesAddressInet6(addressMatch.inet6(), address.inet6());
@@ -192,6 +200,15 @@ public final class ProxyRouter
         return low <= port && port <= high;
     }
 
+    private boolean matchesAddressRangeInet(
+        ProxyAddressRangeInetFW addressRange,
+        String16FW address)
+    {
+        final String pattern = addressRange.pattern().asString();
+        final String regex = pattern.replaceAll("\\*", ".*").replaceAll("\\.", "\\.");
+        return Pattern.compile(regex).matcher(address.asString()).matches();
+    }
+
     private boolean matchesAddressRangeInet4(
         ProxyAddressRangeInet4FW addressRange,
         OctetsFW address)
@@ -220,6 +237,17 @@ public final class ProxyRouter
         final int length = addressRange.length();
 
         return matchesAddressRange(address, prefix, length);
+    }
+
+    private boolean matchesAddressInet(
+        ProxyAddressMatchInetFW inetMatch,
+        ProxyAddressInetFW inet)
+    {
+        return matchesProtocol(inetMatch.protocol(), inet.protocol()) &&
+                matchesAddressRangeInet(inetMatch.source(), inet.source()) &&
+                matchesAddressRangeInet(inetMatch.destination(), inet.destination()) &&
+                matchesPortRange(inetMatch.sourcePort(), inet.sourcePort()) &&
+                matchesPortRange(inetMatch.destinationPort(), inet.destinationPort());
     }
 
     private boolean matchesAddressInet4(

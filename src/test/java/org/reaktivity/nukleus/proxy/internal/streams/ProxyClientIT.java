@@ -19,6 +19,10 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.rules.RuleChain.outerRule;
 import static org.reaktivity.reaktor.test.ReaktorRule.EXTERNAL_AFFINITY_MASK;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
+import org.agrona.LangUtil;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -28,13 +32,14 @@ import org.junit.rules.Timeout;
 import org.kaazing.k3po.junit.annotation.Specification;
 import org.kaazing.k3po.junit.rules.K3poRule;
 import org.reaktivity.reaktor.test.ReaktorRule;
+import org.reaktivity.reaktor.test.annotation.Configure;
 
 public class ProxyClientIT
 {
     private final K3poRule k3po = new K3poRule()
-            .addScriptRoot("route", "org/reaktivity/specification/nukleus/proxy/control/route")
-            .addScriptRoot("client", "org/reaktivity/specification/nukleus/proxy/streams/application")
-            .addScriptRoot("server", "org/reaktivity/specification/nukleus/proxy/streams/network.v2");
+        .addScriptRoot("route", "org/reaktivity/specification/nukleus/proxy/control/route")
+        .addScriptRoot("client", "org/reaktivity/specification/nukleus/proxy/streams/application")
+        .addScriptRoot("server", "org/reaktivity/specification/nukleus/proxy/streams/network.v2");
 
     private final TestRule timeout = new DisableOnDebug(new Timeout(10, SECONDS));
 
@@ -182,6 +187,18 @@ public class ProxyClientIT
 
     @Test
     @Specification({
+        "${route}/client.tcp/controller",
+        "${client}/connected.tcp4.unresolved/client",
+        "${server}/connected.tcp4/server"})
+    @Configure(name = "reaktor.host.resolver",
+               value = "org.reaktivity.nukleus.proxy.internal.streams.ProxyClientIT::resolveInet4")
+    public void shouldConnectTcp4Unresolved() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
         "${route}/client/controller",
         "${client}/connected.tcp4/client",
         "${server}/connected.tcp4/server"})
@@ -285,6 +302,18 @@ public class ProxyClientIT
 
     @Test
     @Specification({
+        "${route}/client.tcp/controller",
+        "${client}/connected.tcp6.unresolved/client",
+        "${server}/connected.tcp6/server"})
+    @Configure(name = "reaktor.host.resolver",
+               value = "org.reaktivity.nukleus.proxy.internal.streams.ProxyClientIT::resolveInet6")
+    public void shouldConnectTcp6Unresolved() throws Exception
+    {
+        k3po.finish();
+    }
+
+    @Test
+    @Specification({
         "${route}/client/controller",
         "${client}/connected.tcp6/client",
         "${server}/connected.tcp6/server"})
@@ -321,5 +350,59 @@ public class ProxyClientIT
     public void shouldConnectSockDatagram() throws Exception
     {
         k3po.finish();
+    }
+
+    public static InetAddress[] resolveInet4(
+        String host)
+    {
+        InetAddress[] resolved = null;
+
+        try
+        {
+            InetAddress inet;
+            if ("example.com".equals(host))
+            {
+                byte[] addr = InetAddress.getByName("192.168.0.254").getAddress();
+                inet = InetAddress.getByAddress(host, addr);
+            }
+            else
+            {
+                inet = InetAddress.getByName(host);
+            }
+            resolved = new InetAddress[] { inet };
+        }
+        catch (UnknownHostException ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+
+        return resolved;
+    }
+
+    public static InetAddress[] resolveInet6(
+        String host)
+    {
+        InetAddress[] resolved = null;
+
+        try
+        {
+            InetAddress inet;
+            if ("example.com".equals(host))
+            {
+                byte[] addr = InetAddress.getByName("fd12:3456:789a:1::fe").getAddress();
+                inet = InetAddress.getByAddress(host, addr);
+            }
+            else
+            {
+                inet = InetAddress.getByName(host);
+            }
+            resolved = new InetAddress[] { inet };
+        }
+        catch (UnknownHostException ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+
+        return resolved;
     }
 }

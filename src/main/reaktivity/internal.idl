@@ -19,6 +19,19 @@ scope internal
     {
         option byteorder network;
 
+        enum ProxyAddrFamily (uint8)
+        {
+            INET4 (1),
+            INET6 (2),
+            UNIX (3)
+        }
+
+        enum ProxyAddrProtocol (uint8)
+        {
+            STREAM (1),
+            DATAGRAM (2)
+        }
+
         struct ProxyAddrInet4
         {
             octets[4] source;

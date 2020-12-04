@@ -20,7 +20,7 @@ import static org.junit.rules.RuleChain.outerRule;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol.STREAM;
 import static org.reaktivity.nukleus.route.RouteKind.CLIENT;
 import static org.reaktivity.nukleus.route.RouteKind.SERVER;
-import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET;
+import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET4;
 import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
 import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.UNIX;
 
@@ -92,7 +92,7 @@ public class ControllerIT
                     address = new ProxyAddress()
                     {
                         {
-                            family = INET;
+                            family = INET4;
                             protocol = STREAM;
                             source = "0.0.0.0/0";
                             destination = "0.0.0.0/0";
@@ -127,7 +127,7 @@ public class ControllerIT
                     address = new ProxyAddress()
                     {
                         {
-                            family = INET;
+                            family = INET4;
                             protocol = STREAM;
                             source = "0.0.0.0/0";
                             destination = "0.0.0.0/0";
@@ -168,7 +168,7 @@ public class ControllerIT
                     address = new ProxyAddress()
                     {
                         {
-                            family = INET;
+                            family = INET4;
                             protocol = STREAM;
                             source = "0.0.0.0/0";
                             destination = "0.0.0.0/0";
