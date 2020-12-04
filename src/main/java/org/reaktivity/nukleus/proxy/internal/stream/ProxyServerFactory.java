@@ -1427,11 +1427,11 @@ public final class ProxyServerFactory implements StreamFactory
 
             ProxyAddressFW address = addressRW
                     .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
-                    .inet(i -> i.protocol(t -> t.set(net.decodedTransport))
-                                .source(source)
-                                .destination(destination)
-                                .sourcePort(sourcePort)
-                                .destinationPort(destinationPort))
+                    .inet4(i -> i.protocol(t -> t.set(net.decodedTransport))
+                                 .source(source)
+                                 .destination(destination)
+                                 .sourcePort(sourcePort)
+                                 .destinationPort(destinationPort))
                     .build();
 
             net.decodableBytes -= addressInet4.sizeof();

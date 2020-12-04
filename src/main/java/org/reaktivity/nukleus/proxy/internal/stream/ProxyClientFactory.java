@@ -35,8 +35,8 @@ import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
 import org.reaktivity.nukleus.proxy.internal.types.Array32FW;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet6FW;
-import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInetFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyInfoFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxySecureInfoFW;
@@ -730,16 +730,16 @@ public final class ProxyClientFactory implements StreamFactory
             int progress,
             ProxyAddressFW address)
         {
-            ProxyAddressInetFW inet = address.inet();
-            buffer.putByte(progress++, (byte) (0x10 | (inet.protocol().get().ordinal() + 1)));
+            ProxyAddressInet4FW inet4 = address.inet4();
+            buffer.putByte(progress++, (byte) (0x10 | (inet4.protocol().get().ordinal() + 1)));
             progress += Short.BYTES;
-            buffer.putBytes(progress, inet.source().value(), 0, inet.source().sizeof());
-            progress += inet.source().sizeof();
-            buffer.putBytes(progress, inet.destination().value(), 0, inet.destination().sizeof());
-            progress += inet.destination().sizeof();
-            buffer.putShort(progress, (short) inet.sourcePort(), BIG_ENDIAN);
+            buffer.putBytes(progress, inet4.source().value(), 0, inet4.source().sizeof());
+            progress += inet4.source().sizeof();
+            buffer.putBytes(progress, inet4.destination().value(), 0, inet4.destination().sizeof());
+            progress += inet4.destination().sizeof();
+            buffer.putShort(progress, (short) inet4.sourcePort(), BIG_ENDIAN);
             progress += Short.BYTES;
-            buffer.putShort(progress, (short) inet.destinationPort(), BIG_ENDIAN);
+            buffer.putShort(progress, (short) inet4.destinationPort(), BIG_ENDIAN);
             progress += Short.BYTES;
             return progress;
         }

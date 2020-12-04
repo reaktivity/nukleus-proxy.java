@@ -61,7 +61,7 @@ public class ProxyAddress
         switch (family)
         {
         case INET:
-            builder.inet(i -> i
+            builder.inet4(i -> i
                 .protocol(p -> p.set(protocol))
                 .source(s -> buildAddressRange(source,
                     (ip, l) -> s.prefix(p -> p.set(ip)).length(l)))
