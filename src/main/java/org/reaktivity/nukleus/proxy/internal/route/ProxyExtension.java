@@ -15,6 +15,8 @@
  */
 package org.reaktivity.nukleus.proxy.internal.route;
 
+import static java.util.Objects.requireNonNull;
+
 import javax.json.bind.annotation.JsonbProperty;
 
 import org.reaktivity.nukleus.proxy.internal.types.Array32FW;
@@ -31,8 +33,7 @@ public class ProxyExtension
     public void buildAddress(
         ProxyAddressMatchFW.Builder builder)
     {
-        assert address != null;
-        address.build(builder);
+        requireNonNull(address).build(builder);
     }
 
     public void buildInfos(

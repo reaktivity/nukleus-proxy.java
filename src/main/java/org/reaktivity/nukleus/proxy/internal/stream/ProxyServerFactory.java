@@ -36,12 +36,13 @@ import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
 import org.reaktivity.nukleus.proxy.internal.types.Flyweight;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
-import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyInfoFW;
 import org.reaktivity.nukleus.proxy.internal.types.String16FW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrFamily;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrInet6FW;
+import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrProtocol;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyAddrUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyTlvFW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyTlvSslFW;
@@ -203,8 +204,8 @@ public final class ProxyServerFactory implements StreamFactory
         private int decodeReserved;
         private int decodeFlags;
 
-        private ProxyAddressFamily decodedFamily;
-        private ProxyAddressProtocol decodedTransport;
+        private ProxyAddrFamily decodedFamily;
+        private ProxyAddrProtocol decodedTransport;
         private long decodedCrc32c = -1L;
         private CRC32C crc32c;
         private int decodableBytes;
@@ -1344,8 +1345,8 @@ public final class ProxyServerFactory implements StreamFactory
 
             net.doNetWindow(traceId, authorization, budgetId, 0, 0, remaining, 0);
 
-            net.decodedFamily = ProxyAddressFamily.valueOf(family - 1);
-            net.decodedTransport = ProxyAddressProtocol.valueOf(transport - 1);
+            net.decodedFamily = ProxyAddrFamily.valueOf(family);
+            net.decodedTransport = ProxyAddrProtocol.valueOf(transport);
             net.decodableBytes = remaining;
 
             progress += Short.BYTES;
@@ -1354,7 +1355,7 @@ public final class ProxyServerFactory implements StreamFactory
 
             switch (net.decodedFamily)
             {
-            case INET:
+            case INET4:
                 if (remaining < PROXY_ADDRESS_LENGTH_INET4)
                 {
                     net.cleanup(traceId, authorization);
@@ -1427,11 +1428,11 @@ public final class ProxyServerFactory implements StreamFactory
 
             ProxyAddressFW address = addressRW
                     .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
-                    .inet(i -> i.protocol(t -> t.set(net.decodedTransport))
-                                .source(source)
-                                .destination(destination)
-                                .sourcePort(sourcePort)
-                                .destinationPort(destinationPort))
+                    .inet4(i -> i.protocol(t -> t.set(ProxyAddressProtocol.valueOf(net.decodedTransport.ordinal())))
+                                 .source(source)
+                                 .destination(destination)
+                                 .sourcePort(sourcePort)
+                                 .destinationPort(destinationPort))
                     .build();
 
             net.decodableBytes -= addressInet4.sizeof();
@@ -1496,7 +1497,7 @@ public final class ProxyServerFactory implements StreamFactory
 
             ProxyAddressFW address = addressRW
                     .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
-                    .inet6(i -> i.protocol(t -> t.set(net.decodedTransport))
+                    .inet6(i -> i.protocol(t -> t.set(ProxyAddressProtocol.valueOf(net.decodedTransport.ordinal())))
                                  .source(source)
                                  .destination(destination)
                                  .sourcePort(sourcePort)
@@ -1563,7 +1564,7 @@ public final class ProxyServerFactory implements StreamFactory
 
             ProxyAddressFW address = addressRW
                     .wrap(decodeBuf, net.decodeOffset, decodeBuf.capacity())
-                    .unix(i -> i.protocol(t -> t.set(net.decodedTransport))
+                    .unix(i -> i.protocol(t -> t.set(ProxyAddressProtocol.valueOf(net.decodedTransport.ordinal())))
                                 .source(source)
                                 .destination(destination))
                     .build();

@@ -19,12 +19,21 @@ import static java.nio.ByteOrder.BIG_ENDIAN;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.Objects.requireNonNull;
 import static org.reaktivity.nukleus.buffer.BufferPool.NO_SLOT;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET4;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyInfoType.SECURE;
 
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.function.Function;
 import java.util.function.LongUnaryOperator;
 import java.util.function.ToIntFunction;
 
 import org.agrona.DirectBuffer;
+import org.agrona.LangUtil;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -35,6 +44,8 @@ import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
 import org.reaktivity.nukleus.proxy.internal.types.Array32FW;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet4FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInet6FW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressInetFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressUnixFW;
@@ -56,6 +67,9 @@ import org.reaktivity.nukleus.stream.StreamFactory;
 
 public final class ProxyClientFactory implements StreamFactory
 {
+    private static final InetAddress INET4_ANY_LOCAL_ADDRESS = getInetAddressByAddress(new byte[4]);
+    private static final InetAddress INET6_ANY_LOCAL_ADDRESS = getInetAddressByAddress(new byte[16]);
+
     private static final DirectBuffer HEADER_V2 = new UnsafeBuffer("\r\n\r\n\0\r\nQUIT\n".getBytes(US_ASCII));
 
     private final BeginFW beginRO = new BeginFW();
@@ -90,6 +104,7 @@ public final class ProxyClientFactory implements StreamFactory
     private final BufferPool encodePool;
     private final LongUnaryOperator supplyInitialId;
     private final LongUnaryOperator supplyReplyId;
+    private final Function<String, InetAddress[]> resolveHost;
 
     private final Long2ObjectHashMap<MessageConsumer> correlations;
 
@@ -100,13 +115,15 @@ public final class ProxyClientFactory implements StreamFactory
         BufferPool bufferPool,
         LongUnaryOperator supplyInitialId,
         LongUnaryOperator supplyReplyId,
-        ToIntFunction<String> supplyTypeId)
+        ToIntFunction<String> supplyTypeId,
+        Function<String, InetAddress[]> resolveHost)
     {
         this.router = new ProxyRouter(router, supplyTypeId.applyAsInt(ProxyNukleus.NAME));
         this.writeBuffer = requireNonNull(writeBuffer);
         this.encodePool = requireNonNull(bufferPool);
         this.supplyInitialId = requireNonNull(supplyInitialId);
         this.supplyReplyId = requireNonNull(supplyReplyId);
+        this.resolveHost = requireNonNull(resolveHost);
         this.correlations = new Long2ObjectHashMap<>();
     }
 
@@ -715,6 +732,9 @@ public final class ProxyClientFactory implements StreamFactory
             case INET:
                 progress = encodeProxyAddressInet(buffer, progress, address);
                 break;
+            case INET4:
+                progress = encodeProxyAddressInet4(buffer, progress, address);
+                break;
             case INET6:
                 progress = encodeProxyAddressInet6(buffer, progress, address);
                 break;
@@ -731,15 +751,45 @@ public final class ProxyClientFactory implements StreamFactory
             ProxyAddressFW address)
         {
             ProxyAddressInetFW inet = address.inet();
-            buffer.putByte(progress++, (byte) (0x10 | (inet.protocol().get().ordinal() + 1)));
+            String sourceName = inet.source().asString();
+            String destinationName = inet.destination().asString();
+
+            InetAddress destinationInet = resolveHost.apply(destinationName)[0];
+            byte[] destination = destinationInet.getAddress();
+            ProxyAddressFamily family = asProxyAddressFamily(destinationInet);
+            assert family == INET4 || family == INET6;
+            InetAddress sourceInet = sourceName != null ? resolveHost.apply(sourceName)[0] : getInetAddressLocal(family);
+            byte[] source = sourceInet.getAddress();
+            assert asProxyAddressFamily(sourceInet) == family;
+
+            buffer.putByte(progress++, (byte) ((family.ordinal() << 4) | (inet.protocol().get().ordinal() + 1)));
             progress += Short.BYTES;
-            buffer.putBytes(progress, inet.source().value(), 0, inet.source().sizeof());
-            progress += inet.source().sizeof();
-            buffer.putBytes(progress, inet.destination().value(), 0, inet.destination().sizeof());
-            progress += inet.destination().sizeof();
+            buffer.putBytes(progress, source, 0, source.length);
+            progress += source.length;
+            buffer.putBytes(progress, destination, 0, destination.length);
+            progress += destination.length;
             buffer.putShort(progress, (short) inet.sourcePort(), BIG_ENDIAN);
             progress += Short.BYTES;
             buffer.putShort(progress, (short) inet.destinationPort(), BIG_ENDIAN);
+            progress += Short.BYTES;
+            return progress;
+        }
+
+        private int encodeProxyAddressInet4(
+            MutableDirectBuffer buffer,
+            int progress,
+            ProxyAddressFW address)
+        {
+            ProxyAddressInet4FW inet4 = address.inet4();
+            buffer.putByte(progress++, (byte) (0x10 | (inet4.protocol().get().ordinal() + 1)));
+            progress += Short.BYTES;
+            buffer.putBytes(progress, inet4.source().value(), 0, inet4.source().sizeof());
+            progress += inet4.source().sizeof();
+            buffer.putBytes(progress, inet4.destination().value(), 0, inet4.destination().sizeof());
+            progress += inet4.destination().sizeof();
+            buffer.putShort(progress, (short) inet4.sourcePort(), BIG_ENDIAN);
+            progress += Short.BYTES;
+            buffer.putShort(progress, (short) inet4.destinationPort(), BIG_ENDIAN);
             progress += Short.BYTES;
             return progress;
         }
@@ -1132,5 +1182,58 @@ public final class ProxyClientFactory implements StreamFactory
                 .build();
 
         receiver.accept(flush.typeId(), flush.buffer(), flush.offset(), flush.sizeof());
+    }
+
+    private static ProxyAddressFamily asProxyAddressFamily(
+        InetAddress address)
+    {
+        if (address instanceof Inet4Address)
+        {
+            return INET4;
+        }
+        else if (address instanceof Inet6Address)
+        {
+            return INET6;
+        }
+        else
+        {
+            return INET;
+        }
+    }
+
+    private static InetAddress getInetAddressByAddress(
+        byte[] addr)
+    {
+        InetAddress address = null;
+
+        try
+        {
+            address = InetAddress.getByAddress(addr);
+        }
+        catch (UnknownHostException ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+
+        return address;
+    }
+
+    private static InetAddress getInetAddressLocal(
+        ProxyAddressFamily family)
+    {
+        InetAddress address = null;
+        switch (family)
+        {
+        case INET4:
+            address = INET4_ANY_LOCAL_ADDRESS;
+            break;
+        case INET6:
+            address = INET6_ANY_LOCAL_ADDRESS;
+            break;
+        default:
+            throw new IllegalArgumentException("Unexpected family: " + family);
+        }
+
+        return address;
     }
 }

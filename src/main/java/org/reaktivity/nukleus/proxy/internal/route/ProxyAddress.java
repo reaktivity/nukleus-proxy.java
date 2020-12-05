@@ -63,6 +63,14 @@ public class ProxyAddress
         case INET:
             builder.inet(i -> i
                 .protocol(p -> p.set(protocol))
+                .source(s -> s.pattern(source))
+                .destination(d -> d.pattern(destination))
+                .sourcePort(s -> buildPortRange(sourcePort, (l, h) -> s.low(l).high(h)))
+                .destinationPort(d -> buildPortRange(destinationPort, (l, h) -> d.low(l).high(h))));
+            break;
+        case INET4:
+            builder.inet4(i -> i
+                .protocol(p -> p.set(protocol))
                 .source(s -> buildAddressRange(source,
                     (ip, l) -> s.prefix(p -> p.set(ip)).length(l)))
                 .destination(d -> buildAddressRange(destination,

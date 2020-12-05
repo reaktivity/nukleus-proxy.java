@@ -15,6 +15,8 @@
  */
 package org.reaktivity.nukleus.proxy.internal.stream;
 
+import java.net.InetAddress;
+import java.util.function.Function;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
@@ -36,11 +38,20 @@ public final class ProxyClientFactoryBuilder implements StreamFactoryBuilder
     private LongUnaryOperator supplyReplyId;
     private ToIntFunction<String> supplyTypeId;
     private Supplier<BufferPool> supplyBufferPool;
+    private Function<String, InetAddress[]> resolveHost;
 
     public ProxyClientFactoryBuilder(
         ProxyConfiguration config)
     {
         this.config = config;
+    }
+
+    @Override
+    public StreamFactoryBuilder setHostResolver(
+        Function<String, InetAddress[]> resolveHost)
+    {
+        this.resolveHost = resolveHost;
+        return this;
     }
 
     @Override
@@ -103,6 +114,7 @@ public final class ProxyClientFactoryBuilder implements StreamFactoryBuilder
                 bufferPool,
                 supplyInitialId,
                 supplyReplyId,
-                supplyTypeId);
+                supplyTypeId,
+                resolveHost);
     }
 }
