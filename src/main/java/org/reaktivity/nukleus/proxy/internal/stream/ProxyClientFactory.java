@@ -171,9 +171,14 @@ public final class ProxyClientFactory implements StreamFactory
 
         private final ProxyNetClient net;
 
-        private int initialBudget;
-        private int replyBudget;
-        private int replyPadding;
+        private long initialSeq;
+        private long initialAck;
+        private int initialMax;
+
+        private long replySeq;
+        private long replyAck;
+        private int replyMax;
+        private int replyPad;
 
         private ProxyAppClient(
             long routeId,
@@ -251,6 +256,8 @@ public final class ProxyClientFactory implements StreamFactory
         private void onAppData(
             DataFW data)
         {
+            final long sequence = data.sequence();
+            final long acknowledge = data.acknowledge();
             final long traceId = data.traceId();
             final long authorization = data.authorization();
             final long budgetId = data.budgetId();
@@ -258,9 +265,14 @@ public final class ProxyClientFactory implements StreamFactory
             final int reserved = data.reserved();
             final OctetsFW payload = data.payload();
 
-            initialBudget -= reserved;
+            assert acknowledge <= sequence;
+            assert sequence >= initialSeq;
 
-            if (initialBudget < 0)
+            initialSeq = sequence + data.reserved();
+
+            assert initialAck <= initialSeq;
+
+            if (initialSeq > initialAck + initialMax)
             {
                 doAppReset(traceId, authorization);
                 net.doNetAbort(traceId, authorization);
@@ -303,16 +315,32 @@ public final class ProxyClientFactory implements StreamFactory
         private void onAppWindow(
             WindowFW window)
         {
+            final long sequence = window.sequence();
+            final long acknowledge = window.acknowledge();
+            final int maximum = window.maximum();
             final long traceId = window.traceId();
             final long authorization = window.authorization();
             final long budgetId = window.budgetId();
-            final int credit = window.credit();
             final int padding = window.padding();
+            final int minimum = window.minimum();
+            final int capabilities = window.capabilities();
 
-            replyBudget += credit;
-            replyPadding = padding;
+            assert acknowledge <= sequence;
+            assert sequence <= replySeq;
+            assert acknowledge >= replyAck;
+            assert maximum >= replyMax;
 
-            net.doNetWindow(traceId, authorization, budgetId, replyBudget, replyPadding);
+            this.replyAck = acknowledge;
+            this.replyMax = maximum;
+            this.replyPad = padding;
+
+            assert replyAck <= replySeq;
+
+            final int replyWin = replyMax - (int)(replySeq - replyAck);
+            if (replyWin > 0)
+            {
+                net.doNetWindow(traceId, authorization, budgetId, minimum, capabilities, replyWin, replyPad, replyMax);
+            }
         }
 
         private void onAppReset(
@@ -339,7 +367,8 @@ public final class ProxyClientFactory implements StreamFactory
             long authorization,
             long affinity)
         {
-            doBegin(receiver, routeId, replyId, traceId, authorization, affinity);
+            doBegin(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization, affinity);
         }
 
         private void doAppData(
@@ -350,24 +379,28 @@ public final class ProxyClientFactory implements StreamFactory
             int reserved,
             OctetsFW payload)
         {
-            replyBudget -= reserved;
-            assert replyBudget >= 0;
+            doData(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization, flags, budgetId, reserved, payload);
 
-            doData(receiver, routeId, replyId, traceId, authorization, flags, budgetId, reserved, payload);
+            replySeq += reserved;
+
+            assert replyAck <= replySeq;
         }
 
         private void doAppEnd(
             long traceId,
             long authorization)
         {
-            doEnd(receiver, routeId, replyId, traceId, authorization);
+            doEnd(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization);
         }
 
         private void doAppAbort(
             long traceId,
             long authorization)
         {
-            doAbort(receiver, routeId, replyId, traceId, authorization);
+            doAbort(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization);
         }
 
         private void doAppFlush(
@@ -376,30 +409,39 @@ public final class ProxyClientFactory implements StreamFactory
             long budgetId,
             int reserved)
         {
-            doFlush(receiver, routeId, replyId, traceId, authorization, budgetId, reserved);
+            doFlush(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization, budgetId, reserved);
         }
 
         private void doAppReset(
             long traceId,
             long authorization)
         {
-            doReset(receiver, routeId, initialId, traceId, authorization);
+            doReset(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization);
         }
 
         private void doAppWindow(
             long traceId,
             long authorization,
             long budgetId,
-            int maxBudget,
-            int minPadding)
+            int minimum,
+            int capabilities,
+            int minInitialWin,
+            int minInitialPad,
+            int minInitialMax)
         {
-            int initialCredit = maxBudget - initialBudget;
-            if (initialCredit > 0)
-            {
-                initialBudget += initialCredit;
-                int initialPadding = minPadding;
+            final long newInitialAck = Math.max(initialSeq - minInitialWin, initialAck);
 
-                doWindow(receiver, routeId, initialId, traceId, authorization, budgetId, initialCredit, initialPadding);
+            if (newInitialAck > initialAck || minInitialMax > initialMax)
+            {
+                initialAck = newInitialAck;
+                assert initialAck <= initialSeq;
+
+                initialMax = minInitialMax;
+
+                doWindow(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                        traceId, authorization, budgetId, minInitialPad, minimum, capabilities);
             }
         }
 
@@ -408,7 +450,8 @@ public final class ProxyClientFactory implements StreamFactory
             long authorization,
             OctetsFW extension)
         {
-            doChallenge(receiver, routeId, initialId, traceId, authorization, extension);
+            doChallenge(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization, extension);
         }
     }
 
@@ -423,9 +466,14 @@ public final class ProxyClientFactory implements StreamFactory
         private int encodeSlot = NO_SLOT;
         private int encodeSlotOffset;
 
-        private int initialBudget;
-        private int initialPadding;
-        private int replyBudget;
+        private long initialSeq;
+        private long initialAck;
+        private int initialMax;
+        private int initialPad;
+
+        private long replySeq;
+        private long replyAck;
+        private int replyMax;
 
         private ProxyNetClient(
             ProxyAppClient application,
@@ -496,6 +544,8 @@ public final class ProxyClientFactory implements StreamFactory
         private void onNetData(
             DataFW data)
         {
+            final long sequence = data.sequence();
+            final long acknowledge = data.acknowledge();
             final long authorization = data.authorization();
             final long traceId = data.traceId();
             final int flags = data.flags();
@@ -503,9 +553,14 @@ public final class ProxyClientFactory implements StreamFactory
             final int reserved = data.reserved();
             final OctetsFW payload = data.payload();
 
-            replyBudget -= reserved;
+            assert acknowledge <= sequence;
+            assert sequence >= replySeq;
 
-            if (replyBudget < 0)
+            replySeq = sequence + data.reserved();
+
+            assert replyAck <= replySeq;
+
+            if (replySeq > replyAck + replyMax)
             {
                 doNetReset(traceId, authorization);
                 app.doAppAbort(traceId, authorization);
@@ -548,14 +603,26 @@ public final class ProxyClientFactory implements StreamFactory
         private void onNetWindow(
             WindowFW window)
         {
+            final long sequence = window.sequence();
+            final long acknowledge = window.acknowledge();
+            final int maximum = window.maximum();
             final long traceId = window.traceId();
             final long authorization = window.authorization();
             final long budgetId = window.budgetId();
-            final int credit = window.credit();
+            final int minimum = window.minimum();
+            final int capabilities = window.capabilities();
             final int padding = window.padding();
 
-            initialBudget += credit;
-            initialPadding = padding;
+            assert acknowledge <= sequence;
+            assert sequence <= initialSeq;
+            assert acknowledge >= initialAck;
+            assert maximum >= initialMax;
+
+            this.initialAck = acknowledge;
+            this.initialMax = maximum;
+            this.initialPad = padding;
+
+            assert initialAck <= initialSeq;
 
             if (encodeSlot != NO_SLOT)
             {
@@ -568,7 +635,11 @@ public final class ProxyClientFactory implements StreamFactory
                 encodeSlot = NO_SLOT;
             }
 
-            app.doAppWindow(traceId, authorization, budgetId, initialBudget, initialPadding);
+            final int initialWin = initialMax - (int)(initialSeq - initialAck);
+            if (initialWin > 0)
+            {
+                app.doAppWindow(traceId, authorization, budgetId, minimum, capabilities, initialWin, initialPad, initialMax);
+            }
         }
 
         private void onNetReset(
@@ -612,7 +683,8 @@ public final class ProxyClientFactory implements StreamFactory
 
             correlations.put(replyId, this::onNetMessage);
             router.setThrottle(initialId, this::onNetMessage);
-            doBegin(receiver, routeId, initialId, traceId, authorization, affinity);
+            doBegin(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization, affinity);
         }
 
         private void doNetData(
@@ -623,24 +695,28 @@ public final class ProxyClientFactory implements StreamFactory
             int reserved,
             OctetsFW payload)
         {
-            initialBudget -= reserved;
-            assert initialBudget >= 0;
+            doData(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization, flags, budgetId, reserved, payload);
 
-            doData(receiver, routeId, initialId, traceId, authorization, flags, budgetId, reserved, payload);
+            initialSeq += reserved;
+
+            assert initialAck <= initialSeq;
         }
 
         private void doNetEnd(
             long traceId,
             long authorization)
         {
-            doEnd(receiver, routeId, initialId, traceId, authorization);
+            doEnd(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization);
         }
 
         private void doNetAbort(
             long traceId,
             long authorization)
         {
-            doAbort(receiver, routeId, initialId, traceId, authorization);
+            doAbort(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization);
         }
 
         private void doNetFlush(
@@ -649,7 +725,8 @@ public final class ProxyClientFactory implements StreamFactory
             long budgetId,
             int reserved)
         {
-            doFlush(receiver, routeId, initialId, traceId, authorization, budgetId, reserved);
+            doFlush(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+                    traceId, authorization, budgetId, reserved);
         }
 
         private void doNetReset(
@@ -657,7 +734,8 @@ public final class ProxyClientFactory implements StreamFactory
             long authorization)
         {
             correlations.remove(replyId);
-            doReset(receiver, routeId, replyId, traceId, authorization);
+            doReset(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization);
         }
 
         private void doNetChallenge(
@@ -665,23 +743,31 @@ public final class ProxyClientFactory implements StreamFactory
             long authorization,
             OctetsFW extension)
         {
-            doChallenge(receiver, routeId, replyId, traceId, authorization, extension);
+            doChallenge(receiver, routeId, replyId, replySeq, replyAck, replyMax,
+                    traceId, authorization, extension);
         }
 
         private void doNetWindow(
             long traceId,
             long authorization,
             long budgetId,
-            int maxBudget,
-            int minPadding)
+            int minimum,
+            int capabilities,
+            int minReplyWin,
+            int minReplyPad,
+            int minReplyMax)
         {
-            final int replyCredit = maxBudget - replyBudget;
-            if (replyCredit > 0)
-            {
-                replyBudget += replyCredit;
-                int replyPadding = minPadding;
+            final long newReplyAck = Math.max(replySeq - minReplyWin, replyAck);
 
-                doWindow(receiver, routeId, replyId, traceId, authorization, budgetId, replyCredit, replyPadding);
+            if (newReplyAck > replyAck || minReplyMax > replyMax)
+            {
+                replyAck = newReplyAck;
+                assert replyAck <= replySeq;
+
+                replyMax = minReplyMax;
+
+                doWindow(receiver, routeId, replyId, replySeq, replyAck, replyMax, traceId, authorization, budgetId,
+                        minReplyPad, minimum, capabilities);
             }
         }
 
@@ -740,6 +826,8 @@ public final class ProxyClientFactory implements StreamFactory
                 break;
             case UNIX:
                 progress = encodeProxyAddressUnix(buffer, progress, address);
+                break;
+            case NONE:
                 break;
             }
             return progress;
@@ -1030,6 +1118,9 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization,
         long affinity)
@@ -1037,6 +1128,9 @@ public final class ProxyClientFactory implements StreamFactory
         BeginFW begin = beginRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .affinity(affinity)
@@ -1049,6 +1143,9 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization,
         int flags,
@@ -1059,6 +1156,9 @@ public final class ProxyClientFactory implements StreamFactory
         DataFW data = dataRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .flags(flags)
@@ -1074,12 +1174,18 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization)
     {
         final ResetFW reset = resetRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .build();
@@ -1091,20 +1197,28 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization,
         long budgetId,
-        int credit,
-        int padding)
+        int padding,
+        int minimum,
+        int capabilities)
     {
         final WindowFW window = windowRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .budgetId(budgetId)
-                .credit(credit)
                 .padding(padding)
+                .minimum(minimum)
+                .capabilities(capabilities)
                 .build();
 
         receiver.accept(window.typeId(), window.buffer(), window.offset(), window.sizeof());
@@ -1114,6 +1228,9 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization,
         OctetsFW extension)
@@ -1121,6 +1238,9 @@ public final class ProxyClientFactory implements StreamFactory
         final ChallengeFW challenge = challengeRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .extension(extension)
@@ -1133,12 +1253,18 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization)
     {
         final EndFW end = endRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .build();
@@ -1150,12 +1276,18 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization)
     {
         final AbortFW abort = abortRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .build();
@@ -1167,6 +1299,9 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer receiver,
         long routeId,
         long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
         long traceId,
         long authorization,
         long budgetId,
@@ -1175,6 +1310,9 @@ public final class ProxyClientFactory implements StreamFactory
         final FlushFW flush = flushRW.wrap(writeBuffer, 0, writeBuffer.capacity())
                 .routeId(routeId)
                 .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
                 .traceId(traceId)
                 .authorization(authorization)
                 .budgetId(budgetId)
