@@ -17,12 +17,12 @@ package org.reaktivity.nukleus.proxy.internal.control;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.rules.RuleChain.outerRule;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET4;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
+import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.UNIX;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol.STREAM;
 import static org.reaktivity.nukleus.route.RouteKind.CLIENT;
 import static org.reaktivity.nukleus.route.RouteKind.SERVER;
-import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET4;
-import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
-import static org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily.UNIX;
 
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
