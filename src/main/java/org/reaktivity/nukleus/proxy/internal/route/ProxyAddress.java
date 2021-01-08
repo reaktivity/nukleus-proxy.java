@@ -28,9 +28,9 @@ import java.util.regex.Pattern;
 import javax.json.bind.annotation.JsonbProperty;
 
 import org.agrona.LangUtil;
+import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressMatchFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressProtocol;
-import org.reaktivity.specification.nukleus.proxy.internal.types.ProxyAddressFamily;
 
 public class ProxyAddress
 {
