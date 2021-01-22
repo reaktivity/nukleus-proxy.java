@@ -166,6 +166,8 @@ public final class ProxyRouter
                 return matchesAddressInet6(addressMatch.inet6(), address.inet6());
             case UNIX:
                 return matchesAddressUnix(addressMatch.unix(), address.unix());
+            case NONE:
+                break;
             }
         }
 
