@@ -94,6 +94,8 @@ public class ProxyAddress
                 .source(s -> s.prefix(p -> p.set(source.getBytes(UTF_8))))
                 .destination(d -> d.prefix(p -> p.set(destination.getBytes(UTF_8)))));
             break;
+        case NONE:
+            break;
         }
     }
 
