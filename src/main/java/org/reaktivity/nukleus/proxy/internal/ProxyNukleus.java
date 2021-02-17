@@ -15,7 +15,8 @@
  */
 package org.reaktivity.nukleus.proxy.internal;
 
-import org.reaktivity.nukleus.Nukleus;
+import org.reaktivity.reaktor.nukleus.ElektronContext;
+import org.reaktivity.reaktor.nukleus.Nukleus;
 
 public final class ProxyNukleus implements Nukleus
 {
@@ -42,8 +43,9 @@ public final class ProxyNukleus implements Nukleus
     }
 
     @Override
-    public ProxyElektron supplyElektron()
+    public ProxyElektron supplyElektron(
+        ElektronContext context)
     {
-        return new ProxyElektron(config);
+        return new ProxyElektron(config, context);
     }
 }

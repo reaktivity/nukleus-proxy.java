@@ -13,24 +13,16 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package org.reaktivity.nukleus.proxy.internal;
+package org.reaktivity.nukleus.proxy.internal.stream;
 
-import org.reaktivity.reaktor.nukleus.Configuration;
+import org.reaktivity.reaktor.config.Binding;
+import org.reaktivity.reaktor.nukleus.stream.StreamFactory;
 
-public class ProxyConfiguration extends Configuration
+public interface ProxyStreamFactory extends StreamFactory
 {
-    private static final ConfigurationDef CONFIG_DEF;
+    void attach(
+        Binding binding);
 
-    static
-    {
-        final String prefix = String.format("nukleus.%s", ProxyNukleus.NAME);
-        final ConfigurationDef config = new ConfigurationDef(prefix);
-        CONFIG_DEF = config;
-    }
-
-    public ProxyConfiguration(
-        Configuration config)
-    {
-        super(CONFIG_DEF, config);
-    }
+    void detach(
+        long bindingId);
 }
