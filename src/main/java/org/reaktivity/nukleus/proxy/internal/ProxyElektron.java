@@ -15,35 +15,55 @@
  */
 package org.reaktivity.nukleus.proxy.internal;
 
-import static org.reaktivity.nukleus.route.RouteKind.CLIENT;
-import static org.reaktivity.nukleus.route.RouteKind.SERVER;
+import static org.reaktivity.reaktor.config.Role.CLIENT;
+import static org.reaktivity.reaktor.config.Role.SERVER;
 
 import java.util.EnumMap;
 import java.util.Map;
 
-import org.reaktivity.nukleus.Elektron;
-import org.reaktivity.nukleus.proxy.internal.stream.ProxyClientFactoryBuilder;
-import org.reaktivity.nukleus.proxy.internal.stream.ProxyServerFactoryBuilder;
-import org.reaktivity.nukleus.route.RouteKind;
-import org.reaktivity.nukleus.stream.StreamFactoryBuilder;
+import org.reaktivity.nukleus.proxy.internal.stream.ProxyClientFactory;
+import org.reaktivity.nukleus.proxy.internal.stream.ProxyServerFactory;
+import org.reaktivity.nukleus.proxy.internal.stream.ProxyStreamFactory;
+import org.reaktivity.reaktor.config.Binding;
+import org.reaktivity.reaktor.config.Role;
+import org.reaktivity.reaktor.nukleus.Elektron;
+import org.reaktivity.reaktor.nukleus.ElektronContext;
+import org.reaktivity.reaktor.nukleus.stream.StreamFactory;
 
 final class ProxyElektron implements Elektron
 {
-    private final Map<RouteKind, StreamFactoryBuilder> buildersByKind;
+    private final Map<Role, ProxyStreamFactory> factories;
 
     ProxyElektron(
-        ProxyConfiguration config)
+        ProxyConfiguration config,
+        ElektronContext context)
     {
-        final EnumMap<RouteKind, StreamFactoryBuilder> buildersByKind = new EnumMap<>(RouteKind.class);
-        buildersByKind.put(SERVER, new ProxyServerFactoryBuilder(config));
-        buildersByKind.put(CLIENT, new ProxyClientFactoryBuilder(config));
-        this.buildersByKind = buildersByKind;
+        final EnumMap<Role, ProxyStreamFactory> factories = new EnumMap<>(Role.class);
+        factories.put(SERVER, new ProxyServerFactory(config, context));
+        factories.put(CLIENT, new ProxyClientFactory(config, context));
+        this.factories = factories;
     }
 
     @Override
-    public StreamFactoryBuilder streamFactoryBuilder(
-        RouteKind kind)
+    public StreamFactory attach(
+        Binding binding)
     {
-        return buildersByKind.get(kind);
+        ProxyStreamFactory factory = factories.get(binding.kind);
+        if (factory != null)
+        {
+            factory.attach(binding);
+        }
+        return factory;
+    }
+
+    @Override
+    public void detach(
+        Binding binding)
+    {
+        ProxyStreamFactory factory = factories.get(binding.kind);
+        if (factory != null)
+        {
+            factory.detach(binding.id);
+        }
     }
 }

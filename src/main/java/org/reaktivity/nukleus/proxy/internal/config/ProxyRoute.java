@@ -13,24 +13,26 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package org.reaktivity.nukleus.proxy.internal;
+package org.reaktivity.nukleus.proxy.internal.config;
 
-import org.reaktivity.reaktor.nukleus.Configuration;
+import static java.util.stream.Collectors.toList;
 
-public class ProxyConfiguration extends Configuration
+import java.util.List;
+
+import org.reaktivity.reaktor.config.Route;
+
+public final class ProxyRoute
 {
-    private static final ConfigurationDef CONFIG_DEF;
+    public final long id;
+    public final List<ProxyMatcher> when;
 
-    static
+    public ProxyRoute(
+        Route route)
     {
-        final String prefix = String.format("nukleus.%s", ProxyNukleus.NAME);
-        final ConfigurationDef config = new ConfigurationDef(prefix);
-        CONFIG_DEF = config;
-    }
-
-    public ProxyConfiguration(
-        Configuration config)
-    {
-        super(CONFIG_DEF, config);
+        this.id = route.id;
+        this.when = route.when.stream()
+            .map(ProxyCondition.class::cast)
+            .map(ProxyMatcher::new)
+            .collect(toList());
     }
 }
