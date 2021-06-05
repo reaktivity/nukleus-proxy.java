@@ -13,32 +13,38 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package org.reaktivity.nukleus.proxy.internal;
+package org.reaktivity.nukleus.proxy.internal.config;
 
-import org.reaktivity.nukleus.Configuration;
-import org.reaktivity.nukleus.ControllerBuilder;
-import org.reaktivity.nukleus.ControllerFactorySpi;
+import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonObjectBuilder;
+import javax.json.bind.adapter.JsonbAdapter;
 
-public final class ProxyControllerFactorySpi implements ControllerFactorySpi<ProxyController>
+import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
+import org.reaktivity.reaktor.config.Options;
+import org.reaktivity.reaktor.config.OptionsAdapterSpi;
+
+public final class ProxyOptionsAdapter implements OptionsAdapterSpi, JsonbAdapter<Options, JsonObject>
 {
     @Override
-    public String name()
+    public String type()
     {
         return ProxyNukleus.NAME;
     }
 
     @Override
-    public Class<ProxyController> kind()
+    public JsonObject adaptToJson(
+        Options options)
     {
-        return ProxyController.class;
+        JsonObjectBuilder object = Json.createObjectBuilder();
+
+        return object.build();
     }
 
     @Override
-    public ProxyController create(
-        Configuration config,
-        ControllerBuilder<ProxyController> builder)
+    public Options adaptFromJson(
+        JsonObject object)
     {
-        return builder.setFactory(ProxyController::new)
-                      .build();
+        return new ProxyOptions();
     }
 }

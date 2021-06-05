@@ -17,12 +17,11 @@ package org.reaktivity.nukleus.proxy.internal.stream;
 
 import static java.nio.ByteOrder.BIG_ENDIAN;
 import static java.nio.charset.StandardCharsets.US_ASCII;
-import static java.util.Objects.requireNonNull;
-import static org.reaktivity.nukleus.buffer.BufferPool.NO_SLOT;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET4;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFamily.INET6;
 import static org.reaktivity.nukleus.proxy.internal.types.ProxyInfoType.SECURE;
+import static org.reaktivity.reaktor.nukleus.buffer.BufferPool.NO_SLOT;
 
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -30,17 +29,15 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.function.Function;
 import java.util.function.LongUnaryOperator;
-import java.util.function.ToIntFunction;
 
 import org.agrona.DirectBuffer;
 import org.agrona.LangUtil;
 import org.agrona.MutableDirectBuffer;
-import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.concurrent.UnsafeBuffer;
-import org.reaktivity.nukleus.buffer.BufferPool;
-import org.reaktivity.nukleus.function.MessageConsumer;
 import org.reaktivity.nukleus.proxy.internal.ProxyConfiguration;
 import org.reaktivity.nukleus.proxy.internal.ProxyNukleus;
+import org.reaktivity.nukleus.proxy.internal.config.ProxyBinding;
+import org.reaktivity.nukleus.proxy.internal.config.ProxyRoute;
 import org.reaktivity.nukleus.proxy.internal.types.Array32FW;
 import org.reaktivity.nukleus.proxy.internal.types.OctetsFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressFW;
@@ -52,7 +49,6 @@ import org.reaktivity.nukleus.proxy.internal.types.ProxyAddressUnixFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxyInfoFW;
 import org.reaktivity.nukleus.proxy.internal.types.ProxySecureInfoFW;
 import org.reaktivity.nukleus.proxy.internal.types.codec.ProxyTlvFW;
-import org.reaktivity.nukleus.proxy.internal.types.control.RouteFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.AbortFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.BeginFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.ChallengeFW;
@@ -62,10 +58,13 @@ import org.reaktivity.nukleus.proxy.internal.types.stream.FlushFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.ProxyBeginExFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.ResetFW;
 import org.reaktivity.nukleus.proxy.internal.types.stream.WindowFW;
-import org.reaktivity.nukleus.route.RouteManager;
-import org.reaktivity.nukleus.stream.StreamFactory;
+import org.reaktivity.reaktor.config.Binding;
+import org.reaktivity.reaktor.nukleus.ElektronContext;
+import org.reaktivity.reaktor.nukleus.buffer.BufferPool;
+import org.reaktivity.reaktor.nukleus.function.MessageConsumer;
+import org.reaktivity.reaktor.nukleus.stream.StreamFactory;
 
-public final class ProxyClientFactory implements StreamFactory
+public final class ProxyClientFactory implements ProxyStreamFactory
 {
     private static final InetAddress INET4_ANY_LOCAL_ADDRESS = getInetAddressByAddress(new byte[4]);
     private static final InetAddress INET6_ANY_LOCAL_ADDRESS = getInetAddressByAddress(new byte[16]);
@@ -102,29 +101,37 @@ public final class ProxyClientFactory implements StreamFactory
     private final ProxyRouter router;
     private final MutableDirectBuffer writeBuffer;
     private final BufferPool encodePool;
+    private final StreamFactory streamFactory;
     private final LongUnaryOperator supplyInitialId;
     private final LongUnaryOperator supplyReplyId;
     private final Function<String, InetAddress[]> resolveHost;
 
-    private final Long2ObjectHashMap<MessageConsumer> correlations;
-
     public ProxyClientFactory(
         ProxyConfiguration config,
-        RouteManager router,
-        MutableDirectBuffer writeBuffer,
-        BufferPool bufferPool,
-        LongUnaryOperator supplyInitialId,
-        LongUnaryOperator supplyReplyId,
-        ToIntFunction<String> supplyTypeId,
-        Function<String, InetAddress[]> resolveHost)
+        ElektronContext context)
     {
-        this.router = new ProxyRouter(router, supplyTypeId.applyAsInt(ProxyNukleus.NAME));
-        this.writeBuffer = requireNonNull(writeBuffer);
-        this.encodePool = requireNonNull(bufferPool);
-        this.supplyInitialId = requireNonNull(supplyInitialId);
-        this.supplyReplyId = requireNonNull(supplyReplyId);
-        this.resolveHost = requireNonNull(resolveHost);
-        this.correlations = new Long2ObjectHashMap<>();
+        this.router = new ProxyRouter(context.supplyTypeId(ProxyNukleus.NAME));
+        this.writeBuffer = context.writeBuffer();
+        this.encodePool = context.bufferPool();
+        this.streamFactory = context.streamFactory();
+        this.supplyInitialId = context::supplyInitialId;
+        this.supplyReplyId = context::supplyReplyId;
+        this.resolveHost = context::resolveHost;
+    }
+
+    @Override
+    public void attach(
+        Binding binding)
+    {
+        ProxyBinding proxyBinding = new ProxyBinding(binding);
+        router.attach(proxyBinding);
+    }
+
+    @Override
+    public void detach(
+        long bindingId)
+    {
+        router.detach(bindingId);
     }
 
     @Override
@@ -136,27 +143,18 @@ public final class ProxyClientFactory implements StreamFactory
         MessageConsumer sender)
     {
         final BeginFW begin = beginRO.wrap(buffer, index, index + length);
-        final long streamId = begin.streamId();
+        final long routeId = begin.routeId();
+        final long initialId = begin.streamId();
+        final long authorization = begin.authorization();
+        final ProxyBeginExFW beginEx = begin.extension().get(beginExRO::tryWrap);
 
         MessageConsumer newStream = null;
 
-        if ((streamId & 0x0000_0000_0000_0001L) != 0L)
+        final ProxyBinding binding = router.lookup(routeId);
+        final ProxyRoute resolved = binding != null ? binding.resolve(authorization, beginEx) : null;
+        if (resolved != null)
         {
-            final RouteFW route = router.resolveApp(begin);
-            if (route != null)
-            {
-                final long routeId = begin.routeId();
-                final long initialId = begin.streamId();
-                final long resolvedId = route.correlationId();
-
-                newStream = new ProxyAppClient(routeId, initialId, sender, resolvedId)::onAppMessage;
-            }
-        }
-        else
-        {
-            final long replyId = begin.streamId();
-
-            newStream = correlations.remove(replyId);
+            newStream = new ProxyAppClient(routeId, initialId, sender, resolved.id)::onAppMessage;
         }
 
         return newStream;
@@ -247,8 +245,6 @@ public final class ProxyClientFactory implements StreamFactory
             final OctetsFW extension = begin.extension();
 
             final ProxyBeginExFW beginEx = extension.get(beginExRO::tryWrap);
-
-            router.setThrottle(replyId, this::onAppMessage);
 
             net.doNetBegin(traceId, authorization, affinity, beginEx);
         }
@@ -461,7 +457,7 @@ public final class ProxyClientFactory implements StreamFactory
         private final long routeId;
         private final long initialId;
         private final long replyId;
-        private final MessageConsumer receiver;
+        private MessageConsumer receiver;
 
         private int encodeSlot = NO_SLOT;
         private int encodeSlotOffset;
@@ -483,7 +479,6 @@ public final class ProxyClientFactory implements StreamFactory
             this.routeId = routeId;
             this.initialId = supplyInitialId.applyAsLong(routeId);
             this.replyId =  supplyReplyId.applyAsLong(initialId);
-            this.receiver = router.supplyReceiver(initialId);
         }
 
         private void onNetMessage(
@@ -681,9 +676,7 @@ public final class ProxyClientFactory implements StreamFactory
                 encodeSlotOffset = encodeLocal(buffer);
             }
 
-            correlations.put(replyId, this::onNetMessage);
-            router.setThrottle(initialId, this::onNetMessage);
-            doBegin(receiver, routeId, initialId, initialSeq, initialAck, initialMax,
+            receiver = newStream(this::onNetMessage, routeId, initialId, initialSeq, initialAck, initialMax,
                     traceId, authorization, affinity);
         }
 
@@ -733,7 +726,6 @@ public final class ProxyClientFactory implements StreamFactory
             long traceId,
             long authorization)
         {
-            correlations.remove(replyId);
             doReset(receiver, routeId, replyId, replySeq, replyAck, replyMax,
                     traceId, authorization);
         }
@@ -1112,6 +1104,36 @@ public final class ProxyClientFactory implements StreamFactory
             progress += namespaceTlv.sizeof();
             return progress;
         }
+    }
+
+    private MessageConsumer newStream(
+        MessageConsumer sender,
+        long routeId,
+        long streamId,
+        long sequence,
+        long acknowledge,
+        int maximum,
+        long traceId,
+        long authorization,
+        long affinity)
+    {
+        BeginFW begin = beginRW.wrap(writeBuffer, 0, writeBuffer.capacity())
+                .routeId(routeId)
+                .streamId(streamId)
+                .sequence(sequence)
+                .acknowledge(acknowledge)
+                .maximum(maximum)
+                .traceId(traceId)
+                .authorization(authorization)
+                .affinity(affinity)
+                .build();
+
+        MessageConsumer receiver =
+            streamFactory.newStream(begin.typeId(), begin.buffer(), begin.offset(), begin.sizeof(), sender);
+
+        receiver.accept(begin.typeId(), begin.buffer(), begin.offset(), begin.sizeof());
+
+        return receiver;
     }
 
     private void doBegin(
