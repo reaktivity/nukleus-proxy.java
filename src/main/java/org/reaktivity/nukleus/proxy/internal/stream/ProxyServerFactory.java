@@ -1270,6 +1270,7 @@ public final class ProxyServerFactory implements ProxyStreamFactory
         decode:
         if (length >= HEADER_V2_SIZE)
         {
+            int anchor = progress;
             DirectBuffer header = headerRO;
             header.wrap(buffer, progress, HEADER_V2_SIZE);
             if (!HEADER_V2.equals(header))
@@ -1279,6 +1280,9 @@ public final class ProxyServerFactory implements ProxyStreamFactory
             }
 
             progress += HEADER_V2_SIZE;
+
+            updateCRC32C(net.crc32c, buffer, anchor, progress - anchor);
+
             net.decoder = decodeVersion;
         }
 
@@ -1333,23 +1337,25 @@ public final class ProxyServerFactory implements ProxyStreamFactory
         decode:
         if (length > 0)
         {
+            int anchor = progress;
             int command = buffer.getByte(progress) & 0x0f;
+
+            progress++;
+
+            updateCRC32C(net.crc32c, buffer, anchor, progress - anchor);
 
             switch (command)
             {
             case 0:
-                progress++;
                 net.decoder = decodeLocal;
                 break;
             case 1:
-                progress++;
                 net.decoder = decodeProxy;
                 break;
             default:
                 net.cleanup(traceId, authorization);
                 break decode;
             }
-
         }
 
         return progress;

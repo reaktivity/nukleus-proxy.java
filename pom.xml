@@ -6,7 +6,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.reaktivity</groupId>
   <artifactId>nukleus-proxy</artifactId>
-  <version>0.13</version>
+  <version>0.14</version>
   <name>Proxy Nukleus Implementation</name>
   <description>Proxy Nukleus Implementation</description>
   <url>https://github.com/reaktivity/nukleus-proxy.java</url>
@@ -62,7 +62,7 @@
 
     <nukleus.plugin.version>0.85</nukleus.plugin.version>
 
-    <nukleus.proxy.spec.version>0.17</nukleus.proxy.spec.version>
+    <nukleus.proxy.spec.version>0.18</nukleus.proxy.spec.version>
     <reaktor.version>0.171</reaktor.version>
   </properties>
   <dependencies>
