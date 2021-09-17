@@ -17,9 +17,12 @@ module org.reaktivity.nukleus.proxy
 {
     requires org.reaktivity.reaktor;
 
-    provides org.reaktivity.nukleus.NukleusFactorySpi
+    provides org.reaktivity.reaktor.nukleus.NukleusFactorySpi
         with org.reaktivity.nukleus.proxy.internal.ProxyNukleusFactorySpi;
 
-    provides org.reaktivity.nukleus.ControllerFactorySpi
-        with org.reaktivity.nukleus.proxy.internal.ProxyControllerFactorySpi;
+    provides org.reaktivity.reaktor.config.OptionsAdapterSpi
+        with org.reaktivity.nukleus.proxy.internal.config.ProxyOptionsAdapter;
+
+    provides org.reaktivity.reaktor.config.ConditionAdapterSpi
+        with org.reaktivity.nukleus.proxy.internal.config.ProxyConditionAdapter;
 }
