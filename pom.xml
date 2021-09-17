@@ -62,7 +62,7 @@
 
     <nukleus.plugin.version>0.85</nukleus.plugin.version>
 
-    <nukleus.proxy.spec.version>0.17</nukleus.proxy.spec.version>
+    <nukleus.proxy.spec.version>0.18</nukleus.proxy.spec.version>
     <reaktor.version>0.171</reaktor.version>
   </properties>
   <dependencies>
